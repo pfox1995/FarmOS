@@ -9,7 +9,7 @@
 | npm | 11.9.0 | |
 | Python | 3.12.0 | 백엔드 |
 | uv | 0.11.2 | Python 패키지 관리 |
-| PostgreSQL | 18.3 | 사용자 인증 DB |
+| PostgreSQL | 18.3 | FarmOS + 쇼핑몰 공용 DB |
 
 ---
 
@@ -37,6 +37,12 @@ FarmOS/
 │   │   └── types/               # TypeScript 인터페이스
 │   ├── vite.config.ts
 │   └── package.json
+├── shopping_mall/     # 쇼핑몰 모듈 (독립 패키지)
+│   ├── backend/       # FastAPI (port 4000, sync SQLAlchemy + psycopg2)
+│   │   ├── app/       # 라우터, 모델, 스키마, 서비스
+│   │   ├── db/        # seed.py, seed_backoffice.py
+│   │   └── .env       # DB 접속 정보
+│   └── frontend/      # React + Vite (port 5174)
 ├── docs/              # 프로젝트 문서
 └── tools/             # 유틸리티
 ```
@@ -169,18 +175,73 @@ Base URL: `http://localhost:8000/api/v1`
 | 센서 | `/sensors/*` | 인메모리 |
 | 관개 | `/irrigation/*` | 인메모리 |
 
+### 쇼핑몰 API (port 4000)
+
+Base URL: `http://localhost:4000/api`
+
+| 그룹 | 경로 | 저장소 |
+|------|------|--------|
+| 상품 | `/products/*` | PostgreSQL (`shop_` 테이블) |
+| 카테고리 | `/categories/*` | PostgreSQL (`shop_` 테이블) |
+| 장바구니 | `/cart/*` | PostgreSQL (`shop_` 테이블) |
+| 주문 | `/orders/*` | PostgreSQL (`shop_` 테이블) |
+| 백오피스 | `/shipments/*`, `/reports/*`, `/analytics/*` | PostgreSQL (`shop_` 테이블) |
+
 ---
 
-## 6. 동시 실행 (개발 시)
+## 6. 쇼핑몰 설정
 
-터미널 2개를 열고 각각 실행:
+### 의존성 설치
 
 ```bash
-# 터미널 1 — 백엔드
-cd backend && uv run python main.py
+cd shopping_mall/backend
+uv sync
 
-# 터미널 2 — 프론트엔드
-cd frontend && npm run dev
+cd shopping_mall/frontend
+npm install
 ```
 
-브라우저에서 http://localhost:5173 접속 → 로그인 페이지 표시
+### 환경 변수 (`shopping_mall/backend/.env`)
+
+```env
+DATABASE_URL=postgresql+psycopg2://postgres:root@localhost:5432/farmos
+```
+
+### 시드 데이터 투입
+
+```bash
+cd shopping_mall/backend
+uv run python db/seed.py
+uv run python db/seed_backoffice.py
+```
+
+### 서버 실행
+
+```bash
+# 쇼핑몰 백엔드 (port 4000)
+cd shopping_mall/backend && uv run python main.py
+
+# 쇼핑몰 프론트엔드 (port 5174)
+cd shopping_mall/frontend && npm run dev
+```
+
+> 쇼핑몰 테이블은 FarmOS와 같은 `farmos` DB를 사용하며, `shop_` 접두사로 구분됩니다.
+
+---
+
+## 7. 동시 실행 (개발 시)
+
+`start-all.bat`으로 4개 서버를 한번에 실행:
+
+```bash
+start-all.bat
+```
+
+| 서비스 | 주소 |
+|--------|------|
+| FarmOS Backend | http://localhost:8000 |
+| FarmOS Frontend | http://localhost:5173 |
+| Shop Backend | http://localhost:4000 |
+| Shop Frontend | http://localhost:5174 |
+
+종료: 아무 키를 누르면 모든 서버가 한번에 종료됩니다.

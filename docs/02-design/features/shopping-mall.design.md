@@ -1,6 +1,6 @@
 # Shopping Mall Design Document
 
-> **Summary**: 네이버 스마트스토어 클론 쇼핑몰 — React(Vite) + FastAPI + SQLite 상세 설계
+> **Summary**: 네이버 스마트스토어 클론 쇼핑몰 — React(Vite) + FastAPI + PostgreSQL 상세 설계
 >
 > **Project**: FarmOS - Shopping Mall Module
 > **Version**: 0.1.0
@@ -63,7 +63,7 @@
 └──────────────────────────────────────────────────┼──────────┘
                                                    │ SQLAlchemy
 ┌──────────────────────────────────────────────────▼──────────┐
-│              SQLite (db/shop.db)                             │
+│              PostgreSQL (farmos DB (shop_ 테이블))                             │
 │  categories, products, stores, users, cart_items,           │
 │  orders, order_items, reviews, wishlists                    │
 └─────────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@
 [axios instance (lib/api.ts)] ──→ HTTP Request
     │
     ▼
-[FastAPI Router] ──→ [CRUD 함수] ──→ [SQLAlchemy Session] ──→ [SQLite]
+[FastAPI Router] ──→ [CRUD 함수] ──→ [SQLAlchemy Session] ──→ [PostgreSQL]
     │
     ▼
 [Pydantic Response Schema] ──→ JSON Response ──→ [TanStack Query Cache] ──→ [UI 렌더링]
@@ -877,7 +877,7 @@ const apiClient = axios.create({
 [project]
 name = "shopping-mall-backend"
 version = "0.1.0"
-description = "Shopping Mall Dummy API Server (FastAPI + SQLite)"
+description = "Shopping Mall Dummy API Server (FastAPI + PostgreSQL)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
@@ -898,11 +898,11 @@ exclude-newer = "7 days"
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-DATABASE_URL = "sqlite:///db/shop.db"
+DATABASE_URL = "postgresql+psycopg2://postgres:root@localhost:5432/farmos"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},  # SQLite 멀티스레드 허용
+    connect_args={"pool_pre_ping": False},  # PostgreSQL 멀티스레드 허용
     echo=False,
 )
 SessionLocal = sessionmaker(bind=engine)
@@ -986,7 +986,7 @@ class ProductSchema(BaseModel):
 1. [ ] `shopping_mall/backend/` 프로젝트 초기화
    - pyproject.toml, .python-version, .env, .gitignore
    - `uv venv && uv sync`
-2. [ ] `app/database.py` — SQLAlchemy + SQLite 연결
+2. [ ] `app/database.py` — SQLAlchemy + PostgreSQL 연결
 3. [ ] `app/models/` — 전체 모델 정의 (9개 테이블)
 4. [ ] `app/schemas/` — Pydantic 스키마 정의
 5. [ ] `db/seed.py` — 시드 데이터 스크립트 (40+ 상품 등)
@@ -1035,5 +1035,5 @@ class ProductSchema(BaseModel):
 
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
-| 0.1 | 2026-04-02 | Initial design (FastAPI + SQLite + React+Vite) | clover0309 |
+| 0.1 | 2026-04-02 | Initial design (FastAPI + PostgreSQL + React+Vite) | clover0309 |
 | 0.2 | 2026-04-02 | Stack change: Next.js → React+Vite, FarmOS 프론트엔드 스택 통일 | clover0309 |

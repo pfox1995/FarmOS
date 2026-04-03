@@ -11,12 +11,12 @@ if TYPE_CHECKING:
 
 
 class Wishlist(Base):
-    __tablename__ = "wishlists"
-    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_user_product"),)
+    __tablename__ = "shop_wishlists"
+    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_shop_user_product"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_users.id"), nullable=False)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_products.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     user: Mapped["User"] = relationship("User", back_populates="wishlists")

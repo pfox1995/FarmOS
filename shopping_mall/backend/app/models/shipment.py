@@ -5,10 +5,10 @@ from app.database import Base
 
 
 class Shipment(Base):
-    __tablename__ = "shipments"
+    __tablename__ = "shop_shipments"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    order_id: Mapped[int] = mapped_column(ForeignKey("shop_orders.id"), nullable=False)
     carrier: Mapped[str] = mapped_column(String(20), nullable=False)
     tracking_number: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="registered")

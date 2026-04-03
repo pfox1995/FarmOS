@@ -5,7 +5,7 @@ from app.database import Base
 
 
 class ExpenseEntry(Base):
-    __tablename__ = "expense_entries"
+    __tablename__ = "shop_expense_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     date: Mapped[str] = mapped_column(String(10), nullable=False)

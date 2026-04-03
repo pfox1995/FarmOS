@@ -304,7 +304,7 @@ ORDER BY total_revenue DESC;
 |------|------|------|
 | **API 서버** | FastAPI (기존 확장) | `shopping_mall/backend`에 모듈 추가 |
 | **작업 스케줄러** | APScheduler 또는 Celery | 주기적 배송 조회, 리포트 생성 |
-| **DB** | SQLite (기존 확장) | 새 테이블 추가 |
+| **DB** | PostgreSQL (기존 확장, `shop_` 접두사) | 새 테이블 추가 |
 
 ### GPU 요구사항
 

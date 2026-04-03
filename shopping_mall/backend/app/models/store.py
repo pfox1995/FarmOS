@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class Store(Base):
-    __tablename__ = "stores"
+    __tablename__ = "shop_stores"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)

@@ -5,7 +5,7 @@ from app.database import Base
 
 
 class WeeklyReport(Base):
-    __tablename__ = "weekly_reports"
+    __tablename__ = "shop_weekly_reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     week_start: Mapped[str] = mapped_column(String(10), nullable=False)

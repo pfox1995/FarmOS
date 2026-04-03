@@ -11,11 +11,11 @@ if TYPE_CHECKING:
 
 
 class CartItem(Base):
-    __tablename__ = "cart_items"
+    __tablename__ = "shop_cart_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_users.id"), nullable=False)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_products.id"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     selected_option: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

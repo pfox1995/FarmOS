@@ -5,12 +5,12 @@ from app.database import Base
 
 
 class RevenueEntry(Base):
-    __tablename__ = "revenue_entries"
+    __tablename__ = "shop_revenue_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     date: Mapped[str] = mapped_column(String(10), nullable=False)
-    order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("orders.id"), nullable=True)
-    product_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("products.id"), nullable=True)
+    order_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("shop_orders.id"), nullable=True)
+    product_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("shop_products.id"), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer, default=0)
     unit_price: Mapped[int] = mapped_column(Integer, default=0)
     total_amount: Mapped[int] = mapped_column(Integer, default=0)

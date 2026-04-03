@@ -1,6 +1,6 @@
 # Shopping Mall (네이버 스마트스토어 클론) Planning Document
 
-> **Summary**: 네이버 스마트스토어와 유사한 쇼핑몰을 Python(FastAPI) + SQLite + React(Vite)로 구현 (더미데이터)
+> **Summary**: 네이버 스마트스토어와 유사한 쇼핑몰을 Python(FastAPI) + PostgreSQL + React(Vite)로 구현 (더미데이터)
 >
 > **Project**: FarmOS - Shopping Mall Module
 > **Version**: 0.3.0
@@ -15,7 +15,7 @@
 | Perspective | Content |
 |-------------|---------|
 | **Problem** | 스마트스토어 형태의 쇼핑몰 UI/UX를 빠르게 프로토타이핑할 수 있는 프론트엔드가 필요하다 |
-| **Solution** | React+Vite 프론트엔드 + FastAPI(Python) 더미 API 서버 + SQLite DB로 분리 구성, `shopping_mall/` 독립 패키지로 개발 |
+| **Solution** | React+Vite 프론트엔드 + FastAPI(Python) 더미 API 서버 + PostgreSQL(`shop_` 접두사 테이블)로 구성, `shopping_mall/` 독립 패키지로 개발 |
 | **Function/UX Effect** | 상품 목록/검색/상세/장바구니/주문 등 핵심 쇼핑 플로우를 네이버 스마트스토어 UI와 유사하게 제공 |
 | **Core Value** | 기존 FarmOS와 완전 격리된 환경에서 더미데이터 기반 쇼핑몰을 빠르게 검증, 추후 실제 백엔드 교체 용이 |
 
@@ -25,14 +25,14 @@
 
 ### 1.1 Purpose
 
-네이버 스마트스토어와 유사한 쇼핑몰 프론트엔드를 React+Vite로 구축한다. 백엔드는 Python + FastAPI로, 데이터베이스는 SQLite로 구성하며, 모든 데이터는 더미데이터로 처리한다.
+네이버 스마트스토어와 유사한 쇼핑몰 프론트엔드를 React+Vite로 구축한다. 백엔드는 Python + FastAPI로, 데이터베이스는 PostgreSQL(FarmOS와 동일 `farmos` DB, `shop_` 접두사 테이블)로 구성하며, 모든 데이터는 더미데이터로 처리한다.
 
 ### 1.2 Background
 
 - FarmOS 프로젝트 내 쇼핑몰 모듈로서 농산물 직거래/판매 기능 검증 목적
 - 기존 FarmOS의 `frontend/`(React+Vite), `backend/`(FastAPI, port 8000)와 **완전 독립**
 - `shopping_mall/` 하위에 별도 패키지로 구성하여 의존성/포트/가상환경 모두 분리
-- SQLite를 사용하여 별도 DB 서버 없이 파일 기반으로 간편하게 운영
+- FarmOS와 동일한 PostgreSQL DB를 공유하되 `shop_` 접두사로 테이블 격리
 
 ### 1.3 Related Documents
 
@@ -52,7 +52,7 @@
 | **Frontend 포트** | `5173` (Vite) | `5174` (Vite) | High | 포트 분리 (5174) |
 | **Python 가상환경** | `backend/.venv` (uv) | `shopping_mall/backend/.venv` (uv) | Medium | 독립 venv, 별도 pyproject.toml |
 | **node_modules** | `frontend/node_modules` | `shopping_mall/frontend/node_modules` | None | 각자 독립 |
-| **SQLite DB 파일** | 없음 (asyncpg/PostgreSQL) | `shopping_mall/backend/db/shop.db` | None | 경로 분리 |
+| **PostgreSQL DB 파일** | 없음 (asyncpg/PostgreSQL) | `shopping_mall/backend/db/farmos DB (shop_ 접두사 테이블)` | None | 경로 분리 |
 | **Git 추적** | `.gitignore` 루트 | shopping_mall 전용 `.gitignore` 추가 | Low | `.db`, `.venv`, `node_modules` 제외 |
 | **Python 버전** | 3.12+ (`backend/.python-version`) | 3.12+ (동일) | None | 호환 |
 | **패키지 매니저** | uv | uv | None | 동일 도구, 별도 lockfile |
@@ -62,7 +62,7 @@
 1. **폴더 완전 분리**: `shopping_mall/` 하위에 모든 코드/설정/DB 포함
 2. **포트 충돌 방지**: FarmOS(8000/5173) vs Shopping Mall(4000/5174) 명확 분리
 3. **가상환경 독립**: 각자의 `.venv`, `pyproject.toml`, `uv.lock` 보유
-4. **DB 파일 격리**: SQLite 파일은 `shopping_mall/backend/db/` 내부에만 존재
+4. **DB 파일 격리**: PostgreSQL 파일은 `shopping_mall/backend/db/` 내부에만 존재
 5. **환경변수 분리**: `.env` 파일 각 패키지 내부에 독립 관리
 6. **스크립트 독립**: `shopping_mall/` 루트에 전용 실행 스크립트 제공
 
@@ -82,7 +82,7 @@
 - [ ] 마이페이지 (주문 내역, 찜 목록, 회원 정보)
 - [ ] 판매자 스토어 페이지
 - [ ] FastAPI 더미 API 서버
-- [ ] SQLite 더미 DB + 시드 데이터
+- [ ] PostgreSQL 더미 DB + 시드 데이터
 
 ### 3.2 Out of Scope
 
@@ -112,7 +112,7 @@
 | FR-09 | 판매자 스토어: 스토어 프로필, 스토어 상품 목록 | Low | Pending |
 | FR-10 | 상품 리뷰: 리뷰 목록 표시, 별점 표시 (더미) | Medium | Pending |
 | FR-11 | FastAPI 더미 API 서버: RESTful 엔드포인트 + Swagger UI | High | Pending |
-| FR-12 | SQLite DB: 테이블 스키마 설계 + 시드 데이터 자동 생성 | High | Pending |
+| FR-12 | PostgreSQL DB: 테이블 스키마 설계 + 시드 데이터 자동 생성 | High | Pending |
 
 ### 4.2 Non-Functional Requirements
 
@@ -151,7 +151,7 @@
 |------|--------|------------|------------|
 | FarmOS 백엔드와 포트 충돌 | High | Medium | 포트 4000 사용, `.env`로 관리 |
 | Python 가상환경 혼동 | Medium | Medium | 독립 `.venv`, `pyproject.toml` 분리, README에 실행법 명시 |
-| SQLite 동시 접근 제한 | Low | Low | 더미데이터 규모에서는 문제 없음, WAL 모드 활성화 |
+| PostgreSQL 동시 접근 제한 | Low | Low | 더미데이터 규모에서는 문제 없음, WAL 모드 활성화 |
 | 프론트엔드 규모 과대 | Medium | Low | MVP 범위 우선 구현, 후속 PDCA |
 
 ---
@@ -174,7 +174,7 @@
 | State Management | Context / Zustand / Redux | **Zustand** | 경량, 장바구니 상태 관리 적합 |
 | Styling | Tailwind / CSS Modules / styled | **Tailwind CSS** | 빠른 프로토타이핑, 유틸리티 기반 |
 | Backend Framework | FastAPI / Flask / Django | **FastAPI** | 비동기, 자동 Swagger, 타입 안전, FarmOS와 동일 스택 |
-| Database | SQLite / PostgreSQL / JSON | **SQLite** | 설치 불필요, 파일 기반, SQL 쿼리 지원 |
+| Database | PostgreSQL / PostgreSQL / JSON | **PostgreSQL** | 설치 불필요, 파일 기반, SQL 쿼리 지원 |
 | ORM | SQLAlchemy / Tortoise / Raw SQL | **SQLAlchemy (sync)** | FarmOS와 동일 ORM, 풍부한 생태계 |
 | API Client | fetch / axios / TanStack Query | **axios + TanStack Query** | 캐싱, 로딩/에러 상태 자동 관리 |
 | Routing | React Router / TanStack Router | **React Router DOM v7** | FarmOS와 동일, SPA 라우팅 |
@@ -242,16 +242,16 @@ FarmOS/                              # 기존 프로젝트 루트
 │   └── backend/                      # FastAPI 더미 API 서버 (port 4000)
 │       ├── pyproject.toml            # 독립 Python 패키지 설정
 │       ├── .python-version           # 3.12
-│       ├── .env                      # PORT=4000, DATABASE_URL=sqlite:///db/shop.db
+│       ├── .env                      # PORT=4000, DATABASE_URL=postgresql+psycopg2://postgres:root@localhost:5432/farmos
 │       ├── .gitignore                # .venv, db/*.db, __pycache__
 │       ├── main.py                   # uvicorn 진입점
 │       ├── db/
-│       │   ├── shop.db               # SQLite DB 파일 (git 제외)
+│       │   ├── farmos DB (shop_ 접두사 테이블)               # PostgreSQL DB 파일 (git 제외)
 │       │   └── seed.py               # 더미 데이터 시드 스크립트
 │       └── app/
 │           ├── __init__.py
 │           ├── main.py               # FastAPI 앱 생성, 라우터 등록
-│           ├── database.py           # SQLAlchemy 엔진/세션 (SQLite)
+│           ├── database.py           # SQLAlchemy 엔진/세션 (PostgreSQL)
 │           ├── models/               # SQLAlchemy 모델
 │           │   ├── __init__.py
 │           │   ├── product.py
@@ -291,7 +291,7 @@ FarmOS/                              # 기존 프로젝트 루트
 
 ---
 
-## 8. SQLite DB 스키마 설계
+## 8. PostgreSQL DB 스키마 설계
 
 ### 8.1 테이블 구조
 
@@ -462,7 +462,7 @@ CREATE TABLE wishlists (
 |----------|---------|---------|---------|
 | `VITE_API_URL` | 더미 API 서버 주소 | frontend | `http://localhost:4000` |
 | `PORT` | Backend 서버 포트 | backend | `4000` |
-| `DATABASE_URL` | SQLite DB 경로 | backend | `sqlite:///db/shop.db` |
+| `DATABASE_URL` | PostgreSQL DB 경로 | backend | `postgresql+psycopg2://postgres:root@localhost:5432/farmos` |
 
 ---
 
@@ -475,7 +475,7 @@ CREATE TABLE wishlists (
        ┌────────┼────────┐
   Frontend   Backend     DB
    Agent      Agent     Agent
-React+Vite  FastAPI    SQLite
+React+Vite  FastAPI    PostgreSQL
   UI/UX      API 서버   스키마/시드
   Zustand    라우터      더미데이터
 ```
@@ -485,19 +485,19 @@ React+Vite  FastAPI    SQLite
 | **CTO Lead** | cto-lead (opus) | 전체 아키텍처 결정, PDCA 워크플로우 조율, 충돌 방지 감독 |
 | **Frontend** | frontend-architect | React+Vite UI 구현, 컴포넌트 설계, Zustand 상태 관리 |
 | **Backend** | bkend-expert | FastAPI 더미 API 서버, 라우터/CRUD 설계 |
-| **DB** | product-manager | SQLite 스키마 설계, 시드 데이터 생성, 데이터 관계 설계 |
+| **DB** | product-manager | PostgreSQL 스키마 설계, 시드 데이터 생성, 데이터 관계 설계 |
 
 ### 11.2 팀별 작업 분배
 
 **DB 팀:**
-1. SQLite 테이블 스키마 정의 (models/)
+1. PostgreSQL 테이블 스키마 정의 (models/)
 2. Pydantic 스키마 정의 (schemas/)
 3. 시드 데이터 스크립트 작성 (db/seed.py)
 4. 더미 데이터 생성 (40+ 상품, 12 카테고리, 5 스토어, 5 사용자, 30+ 리뷰)
 
 **Backend 팀:**
 1. FastAPI 프로젝트 초기화 (`pyproject.toml`, `main.py`)
-2. SQLAlchemy + SQLite 연결 설정 (`database.py`)
+2. SQLAlchemy + PostgreSQL 연결 설정 (`database.py`)
 3. API 라우터 구현 (routers/)
 4. CRUD 로직 구현 (crud/)
 5. CORS 설정, 에러 핸들링
@@ -517,7 +517,7 @@ React+Vite  FastAPI    SQLite
 
 ### Phase 1: 기반 구축 (DB + Backend)
 1. `shopping_mall/backend/` 프로젝트 초기화 (pyproject.toml, uv)
-2. SQLAlchemy 모델 정의 + SQLite 연결
+2. SQLAlchemy 모델 정의 + PostgreSQL 연결
 3. 시드 데이터 스크립트 작성 및 실행
 4. 핵심 API 구현 (상품 목록/상세, 카테고리)
 5. Swagger UI 확인
@@ -582,5 +582,5 @@ Shopping Mall Frontend: http://localhost:5174  (신규)
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
 | 0.1 | 2026-04-02 | Initial draft (Express + JSON) | clover0309 |
-| 0.2 | 2026-04-02 | Stack change: Python + FastAPI + SQLite, FarmOS 충돌 방지 전략 추가 | clover0309 |
+| 0.2 | 2026-04-02 | Stack change: Python + FastAPI + PostgreSQL, FarmOS 충돌 방지 전략 추가 | clover0309 |
 | 0.3 | 2026-04-02 | Stack change: Next.js → React+Vite, FarmOS 프론트엔드 스택 통일 | clover0309 |

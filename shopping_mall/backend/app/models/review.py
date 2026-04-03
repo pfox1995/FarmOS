@@ -11,11 +11,11 @@ if TYPE_CHECKING:
 
 
 class Review(Base):
-    __tablename__ = "reviews"
+    __tablename__ = "shop_reviews"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=False)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_products.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_users.id"), nullable=False)
     rating: Mapped[float] = mapped_column(Float, nullable=False)
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     images: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

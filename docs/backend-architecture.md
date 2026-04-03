@@ -9,9 +9,11 @@
 | 웹 프레임워크 | FastAPI | 0.135.2 |
 | 설정 관리 | pydantic-settings | 2.13.1 |
 | ASGI 서버 | uvicorn | 0.42.0 |
-| 데이터 저장 | **인메모리** (시연용) | - |
+| 데이터 저장 (인증) | PostgreSQL 18 | asyncpg |
+| 데이터 저장 (IoT) | **인메모리** (시연용) | - |
 
-> 시연 목적의 POC이므로 DB 없이 인메모리 저장소를 사용한다. 서버 재시작 시 데이터는 초기화된다.
+> IoT 센서 데이터는 시연 목적의 인메모리 저장소를 사용한다. 서버 재시작 시 센서 데이터는 초기화된다.
+> 사용자 인증 데이터는 PostgreSQL `farmos` DB에 영속 저장된다.
 
 ---
 
@@ -175,7 +177,7 @@ uv run python main.py
 # http://localhost:8000/docs
 ```
 
-DB 설치나 마이그레이션 없이 바로 실행 가능하다.
+PostgreSQL `farmos` DB가 필요하다. 테이블은 서버 시작 시 자동 생성된다.
 
 ---
 

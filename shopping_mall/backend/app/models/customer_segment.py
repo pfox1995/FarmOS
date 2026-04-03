@@ -5,10 +5,10 @@ from app.database import Base
 
 
 class CustomerSegment(Base):
-    __tablename__ = "customer_segments"
+    __tablename__ = "shop_customer_segments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_users.id"), unique=True, nullable=False)
     segment: Mapped[str] = mapped_column(String(20), nullable=False)
     recency_days: Mapped[int] = mapped_column(Integer, default=0)
     frequency: Mapped[int] = mapped_column(Integer, default=0)

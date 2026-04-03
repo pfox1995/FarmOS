@@ -7,7 +7,7 @@
 | 프로젝트명 | Shopping Mall (네이버 스마트스토어 클론) |
 | 목적 | 네이버 스마트스토어 UI/UX를 더미데이터 기반으로 구현 |
 | 프로젝트 위치 | `shopping_mall/` (frontend + backend 분리) |
-| 데이터 | 전체 더미데이터 (SQLite 기반) |
+| 데이터 | 전체 더미데이터 (PostgreSQL 기반, `shop_` 접두사 테이블) |
 | 시작일 | 2026-04-02 |
 
 ---
@@ -26,7 +26,7 @@
 ### Backend (`shopping_mall/backend/`) — port 4000
 - **Framework**: Python + FastAPI
 - **ORM**: SQLAlchemy (sync mode)
-- **Database**: SQLite (`db/shop.db`)
+- **Database**: PostgreSQL (`farmos` DB, `shop_` 접두사 테이블)
 - **Package Manager**: uv
 - **API Docs**: Swagger UI (자동, `/docs`)
 
@@ -40,7 +40,7 @@
 | Frontend port | 5173 | **5174** | No |
 | Python venv | `backend/.venv` | `shopping_mall/backend/.venv` | No |
 | node_modules | `frontend/` | `shopping_mall/frontend/` | No |
-| DB | PostgreSQL (asyncpg) | **SQLite (파일)** | No |
+| DB | PostgreSQL (asyncpg) | **PostgreSQL (psycopg2, `shop_` 접두사)** | No |
 | 패키지 매니저 | uv | uv (독립 lockfile) | No |
 
 ---
@@ -51,8 +51,8 @@
         CTO Lead (opus) - 전체 조율
        ┌────────┼────────┐
   Frontend   Backend     DB
-  React+Vite FastAPI    SQLite
-  UI/UX      더미 API   스키마/시드
+  React+Vite FastAPI    PostgreSQL
+  UI/UX      더미 API   shop_ 테이블
 ```
 
 ---
@@ -99,26 +99,26 @@
 
 ---
 
-## SQLite DB 테이블
+## PostgreSQL DB 테이블 (`shop_` 접두사)
 
 | 테이블 | 주요 필드 | 시드 건수 |
 |--------|----------|:---------:|
-| categories | id, name, parent_id, icon | 12 |
-| stores | id, name, description, rating | 5 |
-| products | id, name, price, discount_rate, category_id, store_id | 40+ |
-| users | id, name, email, phone, address | 5 |
-| cart_items | id, user_id, product_id, quantity | 동적 |
-| orders | id, user_id, total_price, status | 10 |
-| order_items | id, order_id, product_id, quantity, price | 20+ |
-| reviews | id, product_id, user_id, rating, content | 30+ |
-| wishlists | id, user_id, product_id | 동적 |
+| shop_categories | id, name, parent_id, icon | 12 |
+| shop_stores | id, name, description, rating | 5 |
+| shop_products | id, name, price, discount_rate, category_id, store_id | 42 |
+| shop_users | id, name, email, phone, address | 5 |
+| shop_cart_items | id, user_id, product_id, quantity | 5 |
+| shop_orders | id, user_id, total_price, status | 10 |
+| shop_order_items | id, order_id, product_id, quantity, price | 19 |
+| shop_reviews | id, product_id, user_id, rating, content | 30 |
+| shop_wishlists | id, user_id, product_id | 8 |
 
 ---
 
 ## 구현 로드맵
 
 ### Phase 1: 기반 구축
-- SQLite 스키마 + 시드 데이터
+- PostgreSQL 스키마 (`shop_` 접두사 테이블) + 시드 데이터
 - FastAPI 서버 초기화 + 상품/카테고리 API
 
 ### Phase 2: 프론트엔드 코어
@@ -138,11 +138,15 @@
 ```bash
 # Backend (port 4000)
 cd shopping_mall/backend
-uv venv && uv sync
-python db/seed.py
-python main.py
+uv sync
+uv run python db/seed.py
+uv run python db/seed_backoffice.py
+uv run python main.py
 
 # Frontend (port 5174)
 cd shopping_mall/frontend
 npm install && npm run dev
+
+# 또는 전체 서비스 한번에 실행
+start-all.bat
 ```

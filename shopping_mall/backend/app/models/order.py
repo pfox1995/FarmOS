@@ -11,10 +11,10 @@ if TYPE_CHECKING:
 
 
 class Order(Base):
-    __tablename__ = "orders"
+    __tablename__ = "shop_orders"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_users.id"), nullable=False)
     total_price: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="pending")
     shipping_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -26,11 +26,11 @@ class Order(Base):
 
 
 class OrderItem(Base):
-    __tablename__ = "order_items"
+    __tablename__ = "shop_order_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    order_id: Mapped[int] = mapped_column(Integer, ForeignKey("orders.id"), nullable=False)
-    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=False)
+    order_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_orders.id"), nullable=False)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("shop_products.id"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     price: Mapped[int] = mapped_column(Integer, nullable=False)
     selected_option: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

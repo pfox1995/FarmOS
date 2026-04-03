@@ -5,10 +5,10 @@ from app.database import Base
 
 
 class ChatLog(Base):
-    __tablename__ = "chat_logs"
+    __tablename__ = "shop_chat_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("shop_users.id"), nullable=True)
     intent: Mapped[str] = mapped_column(String(50), nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
