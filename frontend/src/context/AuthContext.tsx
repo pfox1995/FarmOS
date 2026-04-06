@@ -43,6 +43,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth();
   }, [checkAuth]);
 
+  // Periodic session re-validation — detects backend restart
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(checkAuth, 30_000);
+    return () => clearInterval(interval);
+  }, [user, checkAuth]);
+
   const login = async (userId: string, password: string) => {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
