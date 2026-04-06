@@ -24,11 +24,18 @@ class Settings(BaseSettings):
     # IoT 디바이스 API Key (ESP8266 인증용)
     IOT_API_KEY: str = "farmos-iot-default-key"
 
+    # KMA (기상청 API)
+    KMA_ENCODING_KEY: str = ""
+    KMA_DECODING_KEY: str = ""
+
+    # OpenRouter API
+    OPENROUTER_API_KEY: str = ""
+
     # Sensor thresholds
     SOIL_MOISTURE_LOW: float = 55.0
     SOIL_MOISTURE_HIGH: float = 70.0
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()
