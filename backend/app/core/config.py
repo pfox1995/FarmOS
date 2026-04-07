@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     KMA_ENCODING_KEY: str = ""
     KMA_DECODING_KEY: str = ""
 
+    # KAMIS (농산물유통정보 API)
+    KAMIS_API_KEY: str = ""
+    KAMIS_CERT_ID: str = ""
+
     # OpenRouter API
     OPENROUTER_API_KEY: str = ""
 

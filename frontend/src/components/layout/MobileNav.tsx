@@ -15,6 +15,7 @@ const MORE_TABS = [
   { to: '/documents', icon: '/images/icons/documents.jpg', label: '행정 서류' },
   { to: '/harvest', icon: '/images/icons/harvest.jpg', label: '수확 예측' },
   { to: '/journal', icon: '/images/icons/journal.jpg', label: '영농일지' },
+  { to: '/market', icon: '/images/icons/harvest.jpg', label: '시세 정보' },
   { to: '/scenario', icon: '/images/icons/scenario.jpg', label: '시나리오' },
 ];
 

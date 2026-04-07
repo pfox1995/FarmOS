@@ -8,6 +8,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "chromadb>=1.5.5",
     "fastapi>=0.135.2",
+    "httpx>=0.28.0",
     "passlib[bcrypt]>=1.7.4",
     "pydantic-settings>=2.13.1",
     "python-dotenv>=1.2.2",

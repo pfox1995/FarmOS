@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: '/weather', icon: '/images/icons/weather.jpg', label: '기상 스케줄' },
   { to: '/harvest', icon: '/images/icons/harvest.jpg', label: '수확 예측' },
   { to: '/journal', icon: '/images/icons/journal.jpg', label: '영농일지' },
+  { to: '/market', icon: '/images/icons/harvest.jpg', label: '시세 정보' },
   { to: '/scenario', icon: '/images/icons/scenario.jpg', label: '시나리오' },
 ];
 

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
-from app.api import auth, health, irrigation, knowledge, sensors
+from app.api import auth, health, irrigation, knowledge, market, sensors
 from app.core.config import settings
 from app.core.database import async_session, close_db, init_db
 from app.core.security import hash_password
@@ -79,3 +79,4 @@ app.include_router(health.router, prefix=settings.API_V1_PREFIX)
 app.include_router(sensors.router, prefix=settings.API_V1_PREFIX)
 app.include_router(irrigation.router, prefix=settings.API_V1_PREFIX)
 app.include_router(knowledge.router, prefix=settings.API_V1_PREFIX)
+app.include_router(market.router, prefix=settings.API_V1_PREFIX)
