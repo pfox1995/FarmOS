@@ -244,3 +244,37 @@ export interface AppNotification {
   module: string;
   read: boolean;
 }
+
+// Market (KAMIS dailySalesList)
+export interface KamisItemPrice {
+  product_cls_code: string;  // 01:소매, 02:도매
+  product_cls_name: string;
+  category_code: string;
+  category_name: string;
+  productno: string;
+  lastest_day: string;
+  productName: string;
+  item_name: string;
+  unit: string;
+  day1: string;   // 당일 라벨
+  dpr1: string;   // 당일 가격
+  day2: string;   // 1일전 라벨
+  dpr2: string;   // 1일전 가격
+  day3: string;   // 1주일전 라벨
+  dpr3: string;   // 1주일전 가격
+  day4: string;   // 1개월전 라벨
+  dpr4: string;   // 1개월전 가격
+  direction: string;  // 1:상승, 2:하락, 0:변동없음
+  value: string;      // 등락율
+}
+
+export interface ImportantChange {
+  item_name: string;
+  productno: string;
+  category_name: string;
+  unit: string;
+  currentPrice: number;
+  previousPrice: number;
+  changePercent: number;
+  direction: 'up' | 'down';
+}

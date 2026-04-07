@@ -11,6 +11,7 @@ import DocumentsPage from '@/modules/documents/DocumentsPage';
 import WeatherPage from '@/modules/weather/WeatherPage';
 import HarvestPage from '@/modules/harvest/HarvestPage';
 import JournalPage from '@/modules/journal/JournalPage';
+import MarketPricePage from '@/modules/market/MarketPricePage';
 import ScenarioPage from '@/pages/ScenarioPage';
 import LoginPage from '@/modules/auth/LoginPage';
 import SignupPage from '@/modules/auth/SignupPage';
@@ -66,6 +67,7 @@ export default function App() {
               <Route path="weather" element={<WeatherPage />} />
               <Route path="harvest" element={<HarvestPage />} />
               <Route path="journal" element={<JournalPage />} />
+              <Route path="market" element={<MarketPricePage />} />
               <Route path="scenario" element={<ScenarioPage />} />
             </Route>
 
