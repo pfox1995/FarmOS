@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MdExpandMore, MdExpandLess } from "react-icons/md";
+import { MdExpandMore, MdExpandLess, MdMic } from "react-icons/md";
 import type { JournalEntryAPI } from "@/types";
 
 const WORK_STAGES = [
@@ -17,6 +17,7 @@ interface Props {
   isEdit?: boolean;
   onSubmit: (data: Record<string, unknown>) => Promise<void>;
   onCancel: () => void;
+  onRequestRecord?: () => void;
 }
 
 export default function JournalEntryForm({
@@ -24,6 +25,7 @@ export default function JournalEntryForm({
   isEdit = false,
   onSubmit,
   onCancel,
+  onRequestRecord,
 }: Props) {
   const [workDate, setWorkDate] = useState(
     initialData?.work_date || new Date().toISOString().slice(0, 10),
@@ -243,7 +245,16 @@ export default function JournalEntryForm({
       </div>
 
       {/* 버튼 */}
-      <div className="flex gap-3 justify-end">
+      <div className="flex gap-3 justify-end items-center">
+        {!isEdit && onRequestRecord && (
+          <button
+            type="button"
+            onClick={onRequestRecord}
+            className="mr-auto flex items-center gap-2 px-6 py-3 text-base font-medium text-white bg-red-500 rounded-xl shadow-sm hover:bg-red-600 cursor-pointer"
+          >
+            <MdMic className="text-xl" /> 녹음
+          </button>
+        )}
         <button
           type="button"
           onClick={onCancel}

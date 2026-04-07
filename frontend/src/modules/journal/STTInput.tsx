@@ -1,4 +1,10 @@
-import { useState, useRef, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
 import { MdMic, MdStop, MdAutorenew, MdClose } from "react-icons/md";
 import { motion, AnimatePresence } from "framer-motion";
 import type { STTParseResult } from "@/types";
@@ -21,7 +27,14 @@ interface Props {
 
 export type STTStatus = "idle" | "recording" | "processing";
 
-export default function STTInput({ onParsed, parseSTT }: Props) {
+export interface STTInputHandle {
+  start: () => void;
+}
+
+const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
+  { onParsed, parseSTT },
+  ref,
+) {
   const [status, setStatus] = useState<STTStatus>("idle");
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef<ReturnType<typeof createRecognition> | null>(
@@ -108,6 +121,8 @@ export default function STTInput({ onParsed, parseSTT }: Props) {
     setStatus("idle");
     setTranscript("");
   }, []);
+
+  useImperativeHandle(ref, () => ({ start: startRecording }), [startRecording]);
 
   const handleFABClick = useCallback(() => {
     if (status === "idle") {
@@ -205,7 +220,9 @@ export default function STTInput({ onParsed, parseSTT }: Props) {
       </AnimatePresence>
     </>
   );
-}
+});
+
+export default STTInput;
 
 // Web Speech API 타입
 function createRecognition() {

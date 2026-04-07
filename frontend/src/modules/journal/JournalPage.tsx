@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   MdAdd,
   MdEdit,
@@ -9,7 +9,7 @@ import {
 import toast from "react-hot-toast";
 import { useJournalData } from "@/hooks/useJournalData";
 import JournalEntryForm from "./JournalEntryForm";
-import STTInput from "./STTInput";
+import STTInput, { type STTInputHandle } from "./STTInput";
 import MissingFieldsAlert from "./MissingFieldsAlert";
 import DailySummaryCard from "./DailySummaryCard";
 import type { JournalEntryAPI, STTParseResult } from "@/types";
@@ -55,6 +55,14 @@ export default function JournalPage() {
     null,
   );
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const sttRef = useRef<STTInputHandle>(null);
+
+  const handleRequestRecord = () => {
+    setShowForm(false);
+    setEditingEntry(null);
+    setSttPrefill(null);
+    setTimeout(() => sttRef.current?.start(), 0);
+  };
 
   useEffect(() => {
     fetchEntries(filter === "all" ? {} : { workStage: filter });
@@ -149,12 +157,9 @@ export default function JournalPage() {
 
   return (
     <div className="space-y-6">
-      {/* 헤더 */}
+      {/* 액션 바 */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">영농일지</h2>
-          <p className="text-sm text-gray-500 mt-1">총 {total}건</p>
-        </div>
+        <p className="text-sm text-gray-500">총 {total}건</p>
         <div className="flex gap-2">
           <button onClick={handleExportPDF} className="btn-outline text-sm">
             <MdFileDownload /> PDF 내보내기
@@ -182,7 +187,7 @@ export default function JournalPage() {
       />
 
       {/* 음성 입력 FAB (항상 렌더링) */}
-      <STTInput onParsed={handleSTTParsed} parseSTT={parseSTT} />
+      <STTInput ref={sttRef} onParsed={handleSTTParsed} parseSTT={parseSTT} />
 
       {/* 폼 모달 (생성/수정 공용) */}
       {(showForm || editingEntry) && (
@@ -223,6 +228,7 @@ export default function JournalPage() {
                   setSttPrefill(null);
                   setEditingEntry(null);
                 }}
+                onRequestRecord={handleRequestRecord}
               />
             </div>
           </div>
