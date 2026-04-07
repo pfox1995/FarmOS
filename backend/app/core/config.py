@@ -13,7 +13,11 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE: int = 1800
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+    ]
 
     # ChromaDB (벡터 데이터베이스)
     CHROMA_DB_PATH: str = "./chroma_data"
@@ -32,12 +36,20 @@ class Settings(BaseSettings):
     KAMIS_API_KEY: str = ""
     KAMIS_CERT_ID: str = ""
 
-    # OpenRouter API
-    OPENROUTER_API_KEY: str = ""
-
     # Sensor thresholds
     SOIL_MOISTURE_LOW: float = 55.0
     SOIL_MOISTURE_HIGH: float = 70.0
+
+    # OpenRouter (LLM API)
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "google/gemma-4-31b-it"
+
+    # 식품안전나라 Open API (농약 DB)
+    FOOD_SAFETY_API_KEY: str = ""
+
+    # 한글 폰트 (PDF 생성용)
+    FONT_PATH: str = "C:/Windows/Fonts/malgun.ttf"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

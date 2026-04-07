@@ -22,7 +22,7 @@ export interface DiagnosisResult {
   id: string;
   cropName: string;
   pestName: string;
-  severity: '경증' | '중증' | '심각';
+  severity: "경증" | "중증" | "심각";
   affectedArea: string;
   confidence: number;
   imageUrl: string;
@@ -59,15 +59,15 @@ export interface IrrigationEvent {
   id: string;
   triggeredAt: string;
   reason: string;
-  valveAction: '열림' | '닫힘';
+  valveAction: "열림" | "닫힘";
   duration: number;
   autoTriggered: boolean;
 }
 
 export interface SensorAlert {
   id: string;
-  type: 'moisture' | 'temperature' | 'humidity' | 'connection';
-  severity: '정보' | '주의' | '경고' | '위험';
+  type: "moisture" | "temperature" | "humidity" | "connection";
+  severity: "정보" | "주의" | "경고" | "위험";
   message: string;
   timestamp: string;
   resolved: boolean;
@@ -76,11 +76,11 @@ export interface SensorAlert {
 // Reviews
 export interface Review {
   id: string;
-  platform: '네이버스마트스토어' | '쿠팡';
+  platform: "네이버스마트스토어" | "쿠팡";
   text: string;
   rating: number;
   date: string;
-  sentiment: 'positive' | 'negative' | 'neutral';
+  sentiment: "positive" | "negative" | "neutral";
 }
 
 export interface SentimentSummary {
@@ -93,14 +93,14 @@ export interface SentimentSummary {
 export interface KeywordData {
   word: string;
   count: number;
-  sentiment: 'positive' | 'negative' | 'neutral';
+  sentiment: "positive" | "negative" | "neutral";
 }
 
 export interface AIStrategy {
   id: string;
   title: string;
   description: string;
-  priority: '높음' | '중간' | '낮음';
+  priority: "높음" | "중간" | "낮음";
 }
 
 // Documents
@@ -113,7 +113,7 @@ export interface DocumentTemplate {
 
 export interface DocumentField {
   fieldName: string;
-  fieldType: 'text' | 'number' | 'date' | 'select';
+  fieldType: "text" | "number" | "date" | "select";
   label: string;
   isAvailableFromProfile: boolean;
   value?: string;
@@ -127,7 +127,7 @@ export interface SubsidyMatch {
   amount: string;
   requirements: string[];
   matchedCriteria: string[];
-  status: '신청가능' | '마감임박' | '마감';
+  status: "신청가능" | "마감임박" | "마감";
 }
 
 export interface GeneratedDocument {
@@ -143,7 +143,7 @@ export interface GeneratedDocument {
 // Weather
 export interface WeatherForecast {
   date: string;
-  condition: '맑음' | '구름많음' | '흐림' | '비' | '소나기' | '눈';
+  condition: "맑음" | "구름많음" | "흐림" | "비" | "소나기" | "눈";
   tempHigh: number;
   tempLow: number;
   precipitation: number;
@@ -154,8 +154,8 @@ export interface WeatherForecast {
 
 export interface WeatherAlert {
   id: string;
-  type: '폭우' | '폭설' | '한파' | '폭염' | '강풍';
-  severity: '주의보' | '경보';
+  type: "폭우" | "폭설" | "한파" | "폭염" | "강풍";
+  severity: "주의보" | "경보";
   message: string;
   startDate: string;
   endDate: string;
@@ -166,7 +166,7 @@ export interface FarmTask {
   date: string;
   title: string;
   description: string;
-  type: '방제' | '관수' | '수확' | '시비' | '전정' | '관찰' | '기타';
+  type: "방제" | "관수" | "수확" | "시비" | "전정" | "관찰" | "기타";
   weatherDependent: boolean;
   recommended: boolean;
   blocked: boolean;
@@ -206,7 +206,7 @@ export interface ShipTiming {
 export interface JournalEntry {
   id: string;
   date: string;
-  type: '진단' | '관수' | '방제' | '수확' | '관찰' | '행정' | '기상';
+  type: "진단" | "관수" | "방제" | "수확" | "관찰" | "행정" | "기상";
   title: string;
   description: string;
   sourceModule?: string;
@@ -228,7 +228,14 @@ export interface MonthlySummary {
 // Scenario
 export interface ScenarioEvent {
   day: number;
-  module: 'iot' | 'diagnosis' | 'weather' | 'reviews' | 'documents' | 'harvest' | 'journal';
+  module:
+    | "iot"
+    | "diagnosis"
+    | "weather"
+    | "reviews"
+    | "documents"
+    | "harvest"
+    | "journal";
   title: string;
   description: string;
   route: string;
@@ -237,7 +244,7 @@ export interface ScenarioEvent {
 // Notification
 export interface AppNotification {
   id: string;
-  type: 'info' | 'warning' | 'danger' | 'success';
+  type: "info" | "warning" | "danger" | "success";
   title: string;
   message: string;
   timestamp: string;
@@ -245,9 +252,69 @@ export interface AppNotification {
   read: boolean;
 }
 
+// Journal API types (농업ON format)
+export interface JournalEntryAPI {
+  id: number;
+  user_id: string;
+  work_date: string;
+  field_name: string;
+  crop: string;
+  work_stage: "사전준비" | "경운" | "파종" | "정식" | "작물관리" | "수확";
+  weather: string | null;
+  purchase_pesticide_type: string | null;
+  purchase_pesticide_product: string | null;
+  purchase_pesticide_amount: string | null;
+  purchase_fertilizer_type: string | null;
+  purchase_fertilizer_product: string | null;
+  purchase_fertilizer_amount: string | null;
+  usage_pesticide_type: string | null;
+  usage_pesticide_product: string | null;
+  usage_pesticide_amount: string | null;
+  usage_fertilizer_type: string | null;
+  usage_fertilizer_product: string | null;
+  usage_fertilizer_amount: string | null;
+  detail: string | null;
+  raw_stt_text: string | null;
+  source: "stt" | "text" | "auto";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JournalListResponse {
+  items: JournalEntryAPI[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface STTParseResult {
+  parsed: Partial<JournalEntryAPI>;
+  confidence: Record<string, number>;
+  unparsed_text: string;
+}
+
+export interface DailySummaryAPI {
+  date: string;
+  entry_count: number;
+  stages_worked: string[];
+  crops: string[];
+  weather: string | null;
+  missing_fields: MissingFieldAlert[];
+  summary_text: string;
+}
+
+export interface MissingFieldAlert {
+  entry_id: number;
+  field_name: string;
+  message: string;
+  work_date: string | null;
+  crop: string | null;
+  created_at: string | null;
+}
+
 // Market (KAMIS dailySalesList)
 export interface KamisItemPrice {
-  product_cls_code: string;  // 01:소매, 02:도매
+  product_cls_code: string; // 01:소매, 02:도매
   product_cls_name: string;
   category_code: string;
   category_name: string;
@@ -256,16 +323,16 @@ export interface KamisItemPrice {
   productName: string;
   item_name: string;
   unit: string;
-  day1: string;   // 당일 라벨
-  dpr1: string;   // 당일 가격
-  day2: string;   // 1일전 라벨
-  dpr2: string;   // 1일전 가격
-  day3: string;   // 1주일전 라벨
-  dpr3: string;   // 1주일전 가격
-  day4: string;   // 1개월전 라벨
-  dpr4: string;   // 1개월전 가격
-  direction: string;  // 1:상승, 2:하락, 0:변동없음
-  value: string;      // 등락율
+  day1: string; // 당일 라벨
+  dpr1: string; // 당일 가격
+  day2: string; // 1일전 라벨
+  dpr2: string; // 1일전 가격
+  day3: string; // 1주일전 라벨
+  dpr3: string; // 1주일전 가격
+  day4: string; // 1개월전 라벨
+  dpr4: string; // 1개월전 가격
+  direction: string; // 1:상승, 2:하락, 0:변동없음
+  value: string; // 등락율
 }
 
 export interface ImportantChange {
@@ -276,5 +343,5 @@ export interface ImportantChange {
   currentPrice: number;
   previousPrice: number;
   changePercent: number;
-  direction: 'up' | 'down';
+  direction: "up" | "down";
 }

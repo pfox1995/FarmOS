@@ -42,5 +42,10 @@ Thumbs.db
 # ========== Logs ==========
 *.log
 
+# ========== Benchmark ==========
+# 벤치마킹 파일에 불과하므로 해당 파일의 소유주(JunePark2018)가 업로드 제외 처리함
+backend/benchmark_openrouter.py
+backend/benchmark_stt.py
+
 # ========== Lock files (uv) ==========
 # uv.lock는 재현성을 위해 커밋 권장 — 제외하지 않음
