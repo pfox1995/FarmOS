@@ -5,10 +5,14 @@ import {
   MdDelete,
   MdFileDownload,
   MdClose,
+  MdChevronLeft,
+  MdChevronRight,
 } from "react-icons/md";
 import toast from "react-hot-toast";
 import { useJournalData } from "@/hooks/useJournalData";
-import JournalEntryForm from "./JournalEntryForm";
+import JournalEntryForm, {
+  type JournalEntryFormHandle,
+} from "./JournalEntryForm";
 import STTInput, { type STTInputHandle } from "./STTInput";
 import MissingFieldsAlert from "./MissingFieldsAlert";
 import DailySummaryCard from "./DailySummaryCard";
@@ -55,14 +59,48 @@ export default function JournalPage() {
   const [sttPrefill, setSttPrefill] = useState<Record<string, unknown> | null>(
     null,
   );
+  // 다중 엔트리 상태 (STT가 여러 작업을 감지한 경우)
+  const [sttEntries, setSttEntries] = useState<Record<string, unknown>[]>([]);
+  const [currentEntryIdx, setCurrentEntryIdx] = useState(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const sttRef = useRef<STTInputHandle>(null);
+  const formRef = useRef<JournalEntryFormHandle>(null);
 
   const handleRequestRecord = () => {
     setShowForm(false);
     setEditingEntry(null);
     setSttPrefill(null);
+    setSttEntries([]);
+    setCurrentEntryIdx(0);
     setTimeout(() => sttRef.current?.start(), 0);
+  };
+
+  const gotoEntry = (idx: number) => {
+    if (idx < 0 || idx >= sttEntries.length || idx === currentEntryIdx) return;
+    // 현재 폼 스냅샷 + 다음 엔트리 로드를 하나의 렌더 사이클에서 처리
+    const snapshot = formRef.current?.getFormData();
+    const next = [...sttEntries];
+    if (snapshot) next[currentEntryIdx] = snapshot;
+    setSttEntries(next);
+    setCurrentEntryIdx(idx);
+    setSttPrefill(next[idx] || null);
+  };
+
+  const removeCurrentEntry = () => {
+    if (sttEntries.length <= 1) return;
+    const newEntries = sttEntries.filter((_, i) => i !== currentEntryIdx);
+    const newIdx = Math.min(currentEntryIdx, newEntries.length - 1);
+    setSttEntries(newEntries);
+    setCurrentEntryIdx(newIdx);
+    setSttPrefill(newEntries[newIdx] || null);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setSttPrefill(null);
+    setEditingEntry(null);
+    setSttEntries([]);
+    setCurrentEntryIdx(0);
   };
 
   useEffect(() => {
@@ -70,11 +108,29 @@ export default function JournalPage() {
   }, [filter, fetchEntries]);
 
   const handleCreate = async (data: Record<string, unknown>) => {
+    // 다중 엔트리 모드: 현재 값을 반영한 전체를 일괄 등록
+    if (sttEntries.length > 1) {
+      const allEntries = [...sttEntries];
+      allEntries[currentEntryIdx] = data;
+      let okCount = 0;
+      for (const e of allEntries) {
+        const r = await createEntry({ ...e, source: "stt" });
+        if (r) okCount += 1;
+      }
+      if (okCount === allEntries.length) {
+        toast.success(`${okCount}건의 영농일지가 저장되었습니다.`);
+      } else {
+        toast.error(`${okCount}/${allEntries.length}건만 저장되었습니다.`);
+      }
+      closeForm();
+      fetchEntries(filter === "all" ? {} : { workStage: filter });
+      return;
+    }
+
     const result = await createEntry(data);
     if (result) {
       toast.success("영농일지가 저장되었습니다.");
-      setShowForm(false);
-      setSttPrefill(null);
+      closeForm();
       fetchEntries(filter === "all" ? {} : { workStage: filter });
     } else {
       toast.error("저장에 실패했습니다.");
@@ -105,8 +161,26 @@ export default function JournalPage() {
   };
 
   const handleSTTParsed = (result: STTParseResult) => {
-    toast.success("음성이 분석되었습니다. 확인 후 저장하세요.");
-    setSttPrefill(result.parsed as Record<string, unknown>);
+    if (result.rejected || !result.entries || result.entries.length === 0) {
+      toast.error(result.reject_reason || "영농 작업 내용을 찾지 못했습니다.", {
+        duration: 6000,
+      });
+      return;
+    }
+
+    const entries = result.entries.map(
+      (e) => e.parsed as Record<string, unknown>,
+    );
+
+    if (entries.length === 1) {
+      toast.success("음성이 분석되었습니다. 확인 후 저장하세요.");
+    } else {
+      toast.success(`${entries.length}건의 작업이 감지되었습니다.`);
+    }
+
+    setSttEntries(entries);
+    setCurrentEntryIdx(0);
+    setSttPrefill(entries[0]);
     setEditingEntry(null);
     setShowForm(true);
   };
@@ -198,14 +272,7 @@ export default function JournalPage() {
       {/* 폼 모달 (생성/수정 공용) */}
       {(showForm || editingEntry) && (
         <div className="fixed inset-0 z-40 flex items-center justify-center">
-          <div
-            onClick={() => {
-              setShowForm(false);
-              setSttPrefill(null);
-              setEditingEntry(null);
-            }}
-            className="absolute inset-0 bg-black/30"
-          />
+          <div onClick={closeForm} className="absolute inset-0 bg-black/30" />
           <div className="relative bg-white rounded-2xl shadow-xl w-[90vw] max-w-lg max-h-[85vh] overflow-y-auto">
             <div className="sticky top-0 bg-white rounded-t-2xl z-10 border-b border-gray-100">
               <div className="flex items-center justify-between px-5 py-4">
@@ -213,28 +280,64 @@ export default function JournalPage() {
                   {editingEntry ? "영농일지 수정" : "새 영농일지 작성"}
                 </h3>
                 <button
-                  onClick={() => {
-                    setShowForm(false);
-                    setSttPrefill(null);
-                    setEditingEntry(null);
-                  }}
+                  onClick={closeForm}
                   className="p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
                 >
                   <MdClose className="text-xl" />
                 </button>
               </div>
+              {/* 다중 엔트리 네비게이터 */}
+              {sttEntries.length > 1 && (
+                <div className="flex items-center justify-between px-5 py-2 bg-blue-50 border-t border-blue-100">
+                  <button
+                    type="button"
+                    onClick={() => gotoEntry(currentEntryIdx - 1)}
+                    disabled={currentEntryIdx === 0}
+                    className="p-1 text-blue-700 disabled:text-gray-300 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <MdChevronLeft className="text-2xl" />
+                  </button>
+                  <span className="text-sm font-medium text-blue-800">
+                    {currentEntryIdx + 1} / {sttEntries.length}
+                    <span className="ml-2 text-xs text-blue-600">
+                      건 감지됨
+                    </span>
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={removeCurrentEntry}
+                      className="p-1 text-red-500 hover:text-red-600 cursor-pointer"
+                      title="이 작업 제외"
+                    >
+                      <MdDelete className="text-lg" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => gotoEntry(currentEntryIdx + 1)}
+                      disabled={currentEntryIdx === sttEntries.length - 1}
+                      className="p-1 text-blue-700 disabled:text-gray-300 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <MdChevronRight className="text-2xl" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="px-5 pb-6 pt-4">
               <JournalEntryForm
+                ref={formRef}
+                key={`${editingEntry?.id || "new"}-${currentEntryIdx}`}
                 initialData={editingEntry || prefillAsEntry}
                 isEdit={!!editingEntry}
                 onSubmit={editingEntry ? handleUpdate : handleCreate}
-                onCancel={() => {
-                  setShowForm(false);
-                  setSttPrefill(null);
-                  setEditingEntry(null);
-                }}
+                onCancel={closeForm}
                 onRequestRecord={handleRequestRecord}
+                submitLabel={
+                  sttEntries.length > 1
+                    ? `전체 ${sttEntries.length}건 등록`
+                    : undefined
+                }
               />
             </div>
           </div>

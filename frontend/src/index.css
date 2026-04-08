@@ -201,3 +201,26 @@
     color: #1e40af;
   }
 }
+
+/* STT 진행바 — 계속 차올랐다 비워지는 무한 애니메이션 */
+@keyframes stt-pulse-fill {
+  0% {
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+  50% {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+  50.01% {
+    transform-origin: right;
+  }
+  100% {
+    transform: scaleX(0);
+    transform-origin: right;
+  }
+}
+
+.stt-pulse-bar {
+  animation: stt-pulse-fill 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}

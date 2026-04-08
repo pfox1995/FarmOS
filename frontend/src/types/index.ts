@@ -287,10 +287,17 @@ export interface JournalListResponse {
   page_size: number;
 }
 
-export interface STTParseResult {
+export interface STTParseEntry {
   parsed: Partial<JournalEntryAPI>;
   confidence: Record<string, number>;
+  pesticide_match?: Record<string, unknown> | null;
+}
+
+export interface STTParseResult {
+  entries: STTParseEntry[];
   unparsed_text: string;
+  rejected: boolean;
+  reject_reason?: string | null;
 }
 
 export interface DailySummaryAPI {

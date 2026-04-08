@@ -11,7 +11,7 @@ import type { STTParseResult } from "@/types";
 
 interface Props {
   onParsed: (result: STTParseResult) => void;
-  parseSTT: (rawText: string) => Promise<STTParseResult | null>;
+  parseSTT: (rawText: string) => Promise<STTParseResult>;
   transcribeAudio: (blob: Blob) => Promise<string | null>;
 }
 
@@ -47,6 +47,30 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
   const [status, setStatus] = useState<STTStatus>("idle");
   const [level, setLevel] = useState<number>(0); // 0~1
   const [elapsed, setElapsed] = useState<number>(0); // seconds
+  const [progress, setProgress] = useState<number>(0); // 0~100
+  const interpRef = useRef<number | null>(null);
+
+  const stopInterp = useCallback(() => {
+    if (interpRef.current !== null) {
+      window.clearInterval(interpRef.current);
+      interpRef.current = null;
+    }
+  }, []);
+
+  // from → to 까지 durationMs 동안 선형 보간으로 progress 를 끌어올림
+  const startInterp = useCallback(
+    (from: number, to: number, durationMs: number) => {
+      stopInterp();
+      setProgress(from);
+      const startAt = Date.now();
+      interpRef.current = window.setInterval(() => {
+        const t = Math.min(1, (Date.now() - startAt) / durationMs);
+        setProgress(from + (to - from) * t);
+        if (t >= 1) stopInterp();
+      }, 80);
+    },
+    [stopInterp],
+  );
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -87,19 +111,59 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
 
   const handleBlob = useCallback(
     async (blob: Blob) => {
-      setStatus("transcribing");
-      const text = await transcribeAudio(blob);
-      if (!text) {
+      try {
+        cancelledRef.current = false;
+        // 1) STT 요청 → 응답
+        setStatus("transcribing");
+        setProgress(10);
+        startInterp(15, 55, 12000);
+        const text = await transcribeAudio(blob);
+        stopInterp();
+        if (cancelledRef.current) {
+          setProgress(0);
+          setStatus("idle");
+          return;
+        }
+        if (!text) {
+          setProgress(0);
+          setStatus("idle");
+          return;
+        }
+        setProgress(60);
+
+        // 2) LLM 파싱 요청 → 응답
+        setStatus("parsing");
+        startInterp(62, 95, 18000);
+        const result = await parseSTT(text);
+        stopInterp();
+        if (cancelledRef.current) {
+          setProgress(0);
+          setStatus("idle");
+          return;
+        }
+        setProgress(100);
+
+        onParsed(result);
+        setTimeout(() => {
+          setProgress(0);
+          setStatus("idle");
+        }, 200);
+      } catch (e) {
+        stopInterp();
+        setProgress(0);
         setStatus("idle");
-        return;
+        throw e;
       }
-      setStatus("parsing");
-      const result = await parseSTT(text);
-      if (result) onParsed(result);
-      setStatus("idle");
     },
-    [transcribeAudio, parseSTT, onParsed],
+    [transcribeAudio, parseSTT, onParsed, startInterp, stopInterp],
   );
+
+  const handleBusyCancel = useCallback(() => {
+    cancelledRef.current = true;
+    stopInterp();
+    setProgress(0);
+    setStatus("idle");
+  }, [stopInterp]);
 
   const startRecording = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices) return;
@@ -271,23 +335,35 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
                   </p>
                 </div>
               )}
-              {status === "transcribing" && (
-                <>
-                  <MdAutorenew className="text-white text-5xl animate-spin" />
+              {(status === "transcribing" || status === "parsing") && (
+                <div className="flex flex-col items-center gap-5">
                   <p className="text-white text-lg font-medium">
-                    음성을 텍스트로 변환 중...
+                    {status === "transcribing"
+                      ? "음성을 분석하고 있습니다..."
+                      : "일지를 채우는 중입니다..."}
                   </p>
-                </>
-              )}
-              {status === "parsing" && (
-                <>
-                  <MdAutorenew className="text-white text-5xl animate-spin" />
-                  <p className="text-white text-lg font-medium">
-                    AI가 분석하고 있습니다...
-                  </p>
-                </>
+                  <div className="w-64 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                    <div className="stt-pulse-bar h-full w-full rounded-full bg-white/90" />
+                  </div>
+                </div>
               )}
             </div>
+
+            {/* busy 상태 취소 버튼 (녹음 버튼 자리) */}
+            {isBusy && (
+              <div className="fixed bottom-[88px] right-4 lg:bottom-8 lg:right-8 z-50">
+                <button
+                  onClick={handleBusyCancel}
+                  className="h-12 px-5 rounded-full shadow-lg flex items-center justify-center gap-2
+                    bg-white/90 cursor-pointer transition-colors hover:bg-white"
+                >
+                  <MdClose className="text-gray-600 text-xl" />
+                  <span className="text-gray-600 text-sm font-medium">
+                    취소
+                  </span>
+                </button>
+              </div>
+            )}
 
             {/* 취소 + 정지 버튼 */}
             {status === "recording" && (

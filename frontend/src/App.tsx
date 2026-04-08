@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import { Toaster, ToastBar, toast } from 'react-hot-toast';
+import { MdClose } from 'react-icons/md';
 import { ScenarioProvider } from '@/context/ScenarioContext';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
@@ -80,7 +81,27 @@ export default function App() {
               duration: 4000,
               style: { fontSize: '16px', borderRadius: '12px' },
             }}
-          />
+          >
+            {(t) => (
+              <ToastBar toast={t}>
+                {({ icon, message }) => (
+                  <>
+                    {icon}
+                    {message}
+                    {t.type !== 'loading' && (
+                      <button
+                        onClick={() => toast.dismiss(t.id)}
+                        className="ml-2 p-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+                        aria-label="닫기"
+                      >
+                        <MdClose className="text-base" />
+                      </button>
+                    )}
+                  </>
+                )}
+              </ToastBar>
+            )}
+          </Toaster>
         </ScenarioProvider>
       </AuthProvider>
     </BrowserRouter>

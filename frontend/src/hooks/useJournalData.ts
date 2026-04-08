@@ -147,7 +147,7 @@ export function useJournalData() {
   );
 
   const parseSTT = useCallback(
-    async (rawText: string): Promise<STTParseResult | null> => {
+    async (rawText: string): Promise<STTParseResult> => {
       try {
         const res = await fetch(`${API_BASE}/journal/parse-stt`, {
           ...opts,
@@ -155,10 +155,29 @@ export function useJournalData() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ raw_text: rawText }),
         });
-        if (!res.ok) throw new Error("파싱 실패");
+        if (!res.ok) {
+          let detail = `파싱 실패 (${res.status})`;
+          try {
+            const body = await res.json();
+            if (body?.detail) detail = String(body.detail);
+          } catch {
+            /* ignore */
+          }
+          return {
+            entries: [],
+            unparsed_text: rawText,
+            rejected: true,
+            reject_reason: detail,
+          };
+        }
         return await res.json();
-      } catch {
-        return null;
+      } catch (e) {
+        return {
+          entries: [],
+          unparsed_text: rawText,
+          rejected: true,
+          reject_reason: `네트워크 오류: ${(e as Error).message}`,
+        };
       }
     },
     [],

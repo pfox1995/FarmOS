@@ -52,16 +52,29 @@ async def parse_stt(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """STT 텍스트를 농업ON 구조화 데이터로 파싱 + 농약 DB 매칭."""
+    """STT 텍스트를 농업ON 구조화 데이터로 파싱 + 농약 DB 매칭.
+
+    entries 배열 각각에 대해 퍼지 매칭 포함 보정을 수행.
+    """
     try:
         result = await parse_stt_text(body.raw_text)
     except Exception as e:
-        raise HTTPException(502, f"LLM 연결 실패: {e}")
-    # 농약 DB 매칭 후처리
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(502, f"LLM 연결 실패: {type(e).__name__}: {e}")
+
+    # 각 entry에 대해 농약 매칭 후처리
     try:
         from app.core.pesticide_matcher import enrich_with_pesticide_match
 
-        result = await enrich_with_pesticide_match(db, result)
+        enriched_entries = []
+        for entry in result.get("entries", []):
+            try:
+                enriched_entries.append(await enrich_with_pesticide_match(db, entry))
+            except Exception:
+                enriched_entries.append(entry)
+        result["entries"] = enriched_entries
     except Exception:
         pass  # 매칭 실패해도 파싱 결과는 정상 반환
     return result

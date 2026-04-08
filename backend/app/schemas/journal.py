@@ -132,12 +132,16 @@ class STTParseRequest(BaseModel):
 
 
 class STTParseResponse(BaseModel):
-    """STT 텍스트 파싱 응답."""
+    """STT 텍스트 파싱 응답.
 
-    parsed: dict
-    confidence: dict
-    unparsed_text: str
-    pesticide_match: dict | None = None
+    한 번의 발화에 여러 작업이 섞여 있을 수 있어 entries 배열로 반환.
+    단일 작업이면 entries 길이 1.
+    """
+
+    entries: list[dict] = []  # [{parsed, confidence, pesticide_match?}, ...]
+    unparsed_text: str = ""
+    rejected: bool = False
+    reject_reason: str | None = None
 
 
 # ── 누락 체크 + 일일 요약 ──
