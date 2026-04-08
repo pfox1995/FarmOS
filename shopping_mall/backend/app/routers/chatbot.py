@@ -29,7 +29,7 @@ def _get_chatbot_service() -> ChatbotService:
     return _chatbot_service_instance
 
 
-def _get_user_id(x_user_id: int = Header(default=1, alias="X-User-Id")) -> int:
+def _get_user_id(x_user_id: int = Header(alias="X-User-Id")) -> int:
     return x_user_id
 
 
@@ -113,8 +113,12 @@ def rate_chat_log(log_id: int, body: ChatRating, db: Session = Depends(get_db)):
 
 
 @router.post("/sessions", response_model=ChatSessionResponse)
-def create_session(body: ChatSessionCreate, db: Session = Depends(get_db)):
+def create_session(body: ChatSessionCreate, authenticated_user_id: int = Depends(_get_user_id), db: Session = Depends(get_db)):
     """Create a new chat session for a user. Only one active session per user allowed."""
+    # Validate that user can only create sessions for themselves
+    if body.user_id != authenticated_user_id:
+        raise HTTPException(status_code=403, detail="Cannot create session for other users")
+
     # Check if user already has an active session
     existing_active = (
         db.query(ChatSession)
@@ -247,7 +251,7 @@ def close_session(
         raise HTTPException(status_code=403, detail="Cannot close other users' sessions")
 
     session.status = "closed"
-    session.closed_at = func.now()
+    session.closed_at = datetime.utcnow()
     db.commit()
     db.refresh(session)
     return session
