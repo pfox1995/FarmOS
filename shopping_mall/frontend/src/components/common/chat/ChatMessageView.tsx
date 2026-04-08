@@ -54,12 +54,9 @@ export default function ChatMessageView({ sessionId, userId, onBackClick }: Chat
   };
 
   // Initialize messages from session (빈 경우 WELCOME 포함)
+  // React Query 캐시에서 optimistic update를 하므로 sessionMessages를 그대로 사용
   useEffect(() => {
-    if (sessionMessages.length === 0) {
-      setMessages([WELCOME]);
-    } else {
-      setMessages(sessionMessages);
-    }
+    setMessages(sessionMessages.length === 0 ? [WELCOME] : sessionMessages);
   }, [sessionMessages]);
 
   // Scroll to bottom on new messages
