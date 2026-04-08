@@ -1,5 +1,5 @@
 """Chatbot router."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -34,8 +34,19 @@ def _get_user_id(x_user_id: int = Header(alias="X-User-Id")) -> int:
 
 
 @router.post("/ask", response_model=ChatAnswer)
-async def ask_question(body: ChatQuestion, db: Session = Depends(get_db)):
+async def ask_question(
+    body: ChatQuestion,
+    authenticated_user_id: int = Depends(_get_user_id),
+    db: Session = Depends(get_db)
+):
     """Submit a question to the AI chatbot."""
+    # Validate that the session exists and belongs to the authenticated user
+    session = db.query(ChatSession).filter(ChatSession.id == body.session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    if session.user_id != authenticated_user_id:
+        raise HTTPException(status_code=403, detail="Cannot access other users' sessions")
+
     service = _get_chatbot_service()
     history = [h.model_dump() for h in body.history] if body.history else []
     result = await service.answer(db, question=body.question, user_id=body.user_id, history=history, session_id=body.session_id)
@@ -129,7 +140,7 @@ def create_session(body: ChatSessionCreate, authenticated_user_id: int = Depends
     # If there's an existing active session, close it first
     if existing_active:
         existing_active.status = "closed"
-        existing_active.closed_at = datetime.utcnow()
+        existing_active.closed_at = datetime.now(timezone.utc)
         db.commit()
 
     # Create new session
@@ -251,7 +262,7 @@ def close_session(
         raise HTTPException(status_code=403, detail="Cannot close other users' sessions")
 
     session.status = "closed"
-    session.closed_at = datetime.utcnow()
+    session.closed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(session)
     return session
