@@ -15,6 +15,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/journal': '영농일지',
   '/market': '농산물 시세 정보',
   '/scenario': '사과 농장 한 달 시나리오',
+  '/profile': '내 프로필',
 };
 
 export default function AppLayout() {

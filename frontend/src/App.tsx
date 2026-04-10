@@ -14,22 +14,24 @@ import HarvestPage from '@/modules/harvest/HarvestPage';
 import JournalPage from '@/modules/journal/JournalPage';
 import MarketPricePage from '@/modules/market/MarketPricePage';
 import ScenarioPage from '@/pages/ScenarioPage';
+import ProfilePage from '@/modules/profile/ProfilePage';
 import LoginPage from '@/modules/auth/LoginPage';
-import SignupPage from '@/modules/auth/SignupPage';
+import OnboardingPage from '@/modules/auth/OnboardingPage';
 import FindIdPage from '@/modules/auth/FindIdPage';
 import FindPasswordPage from '@/modules/auth/FindPasswordPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, needsOnboarding } = useAuth();
   if (isLoading) return <LoadingScreen />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (needsOnboarding) return <Navigate to="/onboarding" replace />;
   return <>{children}</>;
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, needsOnboarding } = useAuth();
   if (isLoading) return <LoadingScreen />;
-  if (isAuthenticated) return <Navigate to="/" replace />;
+  if (isAuthenticated && !needsOnboarding) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -54,7 +56,8 @@ export default function App() {
           <Routes>
             {/* Public auth routes */}
             <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-            <Route path="/signup" element={<PublicRoute><SignupPage /></PublicRoute>} />
+            <Route path="/signup" element={<PublicRoute><OnboardingPage /></PublicRoute>} />
+            <Route path="/onboarding" element={<PublicRoute><OnboardingPage /></PublicRoute>} />
             <Route path="/find-id" element={<PublicRoute><FindIdPage /></PublicRoute>} />
             <Route path="/find-password" element={<PublicRoute><FindPasswordPage /></PublicRoute>} />
 
@@ -70,6 +73,7 @@ export default function App() {
               <Route path="journal" element={<JournalPage />} />
               <Route path="market" element={<MarketPricePage />} />
               <Route path="scenario" element={<ScenarioPage />} />
+              <Route path="profile" element={<ProfilePage />} />
             </Route>
 
             {/* Catch-all */}

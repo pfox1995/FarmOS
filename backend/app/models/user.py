@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import String, Float, Integer, Date
+from sqlalchemy import String, Float, Integer, Date, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -21,3 +21,14 @@ class User(Base):
         Date, default=lambda: datetime.now(timezone.utc).date()
     )
     status: Mapped[int] = mapped_column(Integer, default=1)
+
+    # --- 온보딩 확장 필드 ---
+    main_crop: Mapped[str] = mapped_column(String(40), default="")
+    crop_variety: Mapped[str] = mapped_column(String(40), default="")
+    farmland_type: Mapped[str] = mapped_column(String(20), default="")
+    is_promotion_area: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_farm_registration: Mapped[bool] = mapped_column(Boolean, default=False)
+    farmer_type: Mapped[str] = mapped_column(String(20), default="일반")
+    years_rural_residence: Mapped[int] = mapped_column(Integer, default=0)
+    years_farming: Mapped[int] = mapped_column(Integer, default=0)
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)

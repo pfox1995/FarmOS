@@ -42,11 +42,37 @@ async def _ensure_column_widths():
             ))
 
 
+async def _ensure_onboarding_columns():
+    """온보딩 확장 필드가 없으면 추가."""
+    new_columns = [
+        ("main_crop", "VARCHAR(40) DEFAULT ''"),
+        ("crop_variety", "VARCHAR(40) DEFAULT ''"),
+        ("farmland_type", "VARCHAR(20) DEFAULT ''"),
+        ("is_promotion_area", "BOOLEAN DEFAULT FALSE"),
+        ("has_farm_registration", "BOOLEAN DEFAULT FALSE"),
+        ("farmer_type", "VARCHAR(20) DEFAULT '일반'"),
+        ("years_rural_residence", "INTEGER DEFAULT 0"),
+        ("years_farming", "INTEGER DEFAULT 0"),
+        ("onboarding_completed", "BOOLEAN DEFAULT FALSE"),
+    ]
+    async with engine.begin() as conn:
+        for col_name, col_def in new_columns:
+            result = await conn.execute(text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'users' AND column_name = :col"
+            ), {"col": col_name})
+            if result.first() is None:
+                await conn.execute(text(
+                    f"ALTER TABLE users ADD COLUMN {col_name} {col_def}"
+                ))
+
+
 async def init_db():
     """앱 시작 시 테이블 생성."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await _ensure_column_widths()
+    await _ensure_onboarding_columns()
 
 
 async def close_db():

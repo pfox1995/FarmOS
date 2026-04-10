@@ -64,3 +64,21 @@ async def reset_password(db: AsyncSession, user_id: str, new_password: str) -> b
     user.password = hash_password(new_password)
     await db.commit()
     return True
+
+
+_ONBOARDING_FIELDS = frozenset({
+    "farmname", "location", "area", "main_crop", "crop_variety",
+    "farmland_type", "is_promotion_area", "has_farm_registration",
+    "farmer_type", "years_rural_residence", "years_farming",
+})
+
+
+async def update_onboarding(db: AsyncSession, user: User, data: dict) -> User:
+    """온보딩 데이터로 사용자 프로필 업데이트 (허용 필드만 반영)."""
+    for key, value in data.items():
+        if key in _ONBOARDING_FIELDS:
+            setattr(user, key, value)
+    user.onboarding_completed = True
+    await db.commit()
+    await db.refresh(user)
+    return user

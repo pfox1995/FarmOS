@@ -25,17 +25,30 @@ export default function Sidebar() {
 
   return (
     <aside className="w-[280px] bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col overflow-y-auto">
-      {/* User Card */}
+      {/* User Card + 프로필 버튼 */}
       <div className="p-5 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-2xl">
             🧑‍🌾
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="font-bold text-lg text-gray-900">{user?.name}</p>
             <p className="text-sm text-gray-500">{user?.user_id}</p>
           </div>
         </div>
+        <NavLink
+          to="/profile"
+          className={({ isActive }) =>
+            `mt-3 flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              isActive
+                ? 'bg-primary/20 text-primary ring-1 ring-primary/30'
+                : 'bg-primary/5 text-primary hover:bg-primary/15'
+            }`
+          }
+        >
+          <span>👤</span>
+          <span>내 프로필</span>
+        </NavLink>
       </div>
 
       {/* Navigation */}

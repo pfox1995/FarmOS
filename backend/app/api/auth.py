@@ -12,7 +12,7 @@ from app.core import user_store
 from app.models.user import User
 from app.schemas.auth import (
     SignupRequest, LoginRequest, FindIdRequest, FindPasswordRequest,
-    ResetPasswordRequest, UserResponse,
+    ResetPasswordRequest, UserResponse, OnboardingRequest,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -57,9 +57,26 @@ def _set_token_cookie(response: Response, token: str):
     )
 
 
+def _user_response(user: User) -> UserResponse:
+    """User 모델 → UserResponse 변환 헬퍼."""
+    return UserResponse(
+        user_id=user.id, name=user.name, email=user.email,
+        location=user.location, area=user.area, farmname=user.farmname,
+        profile=user.profile, status=user.status,
+        onboarding_completed=user.onboarding_completed,
+        main_crop=user.main_crop, crop_variety=user.crop_variety,
+        farmland_type=user.farmland_type,
+        is_promotion_area=user.is_promotion_area,
+        has_farm_registration=user.has_farm_registration,
+        farmer_type=user.farmer_type,
+        years_rural_residence=user.years_rural_residence,
+        years_farming=user.years_farming,
+    )
+
+
 @router.post("/signup", response_model=UserResponse, status_code=201)
-async def signup(req: SignupRequest, db: AsyncSession = Depends(get_db)):
-    """회원가입."""
+async def signup(req: SignupRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    """회원가입 — 계정 생성 후 자동 로그인(쿠키 설정)."""
     user = await user_store.create_user(
         db, user_id=req.user_id, name=req.name, email=req.email,
         password=req.password, location=req.location,
@@ -67,11 +84,9 @@ async def signup(req: SignupRequest, db: AsyncSession = Depends(get_db)):
     )
     if not user:
         raise HTTPException(400, "이미 사용 중인 아이디 또는 이메일입니다.")
-    return UserResponse(
-        user_id=user.id, name=user.name, email=user.email,
-        location=user.location, area=user.area, farmname=user.farmname,
-        profile=user.profile, status=user.status,
-    )
+    token = create_access_token({"sub": user.id, "name": user.name})
+    _set_token_cookie(response, token)
+    return _user_response(user)
 
 
 @router.post("/login")
@@ -101,12 +116,18 @@ async def logout(response: Response):
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     """현재 로그인한 사용자 정보 반환 — 쿠키 토큰 검증."""
-    return UserResponse(
-        user_id=current_user.id, name=current_user.name, email=current_user.email,
-        location=current_user.location, area=current_user.area,
-        farmname=current_user.farmname, profile=current_user.profile,
-        status=current_user.status,
-    )
+    return _user_response(current_user)
+
+
+@router.put("/onboarding", response_model=UserResponse)
+async def complete_onboarding(
+    req: OnboardingRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """온보딩 완료 — 농장 프로필 저장."""
+    user = await user_store.update_onboarding(db, current_user, req.model_dump(exclude_unset=True))
+    return _user_response(user)
 
 
 @router.post("/find-id")
