@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-01T00:42:51.9924118Z"
+exclude-newer = "2026-04-03T06:37:03.4258588Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -474,6 +474,7 @@ dependencies = [
     { name = "rapidfuzz" },
     { name = "ruff" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -492,6 +493,7 @@ requires-dist = [
     { name = "rapidfuzz", specifier = ">=3.10.0" },
     { name = "ruff", specifier = ">=0.6.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.48" },
+    { name = "sse-starlette", specifier = ">=3.3.4" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.42.0" },
 ]
 
@@ -2010,6 +2012,19 @@ wheels = [
 [package.optional-dependencies]
 asyncio = [
     { name = "greenlet" },
+]
+
+[[package]]
+name = "sse-starlette"
+version = "3.3.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "starlette" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/26/8c/f9290339ef6d79badbc010f067cd769d6601ec11a57d78569c683fb4dd87/sse_starlette-3.3.4.tar.gz", hash = "sha256:aaf92fc067af8a5427192895ac028e947b484ac01edbc3caf00e7e7137c7bef1", size = 32427, upload-time = "2026-03-29T09:00:23.307Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f8/7f/3de5402f39890ac5660b86bcf5c03f9d855dad5c4ed764866d7b592b46fd/sse_starlette-3.3.4-py3-none-any.whl", hash = "sha256:84bb06e58939a8b38d8341f1bc9792f06c2b53f48c608dd207582b664fc8f3c1", size = 14330, upload-time = "2026-03-29T09:00:21.846Z" },
 ]
 
 [[package]]

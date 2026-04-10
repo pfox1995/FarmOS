@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     # 식품안전나라 Open API (농약 DB)
     FOOD_SAFETY_API_KEY: str = ""
 
+    # LLM Provider (리뷰 분석용)
+    LLM_PROVIDER: str = "ollama"  # ollama | openrouter | ollama_remote
+    LLM_MODEL: str = "llama3.1:8b"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_REMOTE_URL: str = ""  # RunPod 등 원격 Ollama URL
+
+    # Review Analysis
+    REVIEW_ANALYSIS_BATCH_SIZE: int = 20
+    REVIEW_ANALYSIS_MAX_RETRIES: int = 2
+
     # AI Agent (IoT 자동 제어)
     AI_AGENT_MODEL: str = "openai/gpt-5-nano"
     AI_AGENT_LLM_INTERVAL: int = 300  # LLM 호출 최소 간격 (초)

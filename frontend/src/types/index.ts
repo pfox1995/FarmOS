@@ -103,6 +103,64 @@ export interface AIStrategy {
   priority: "높음" | "중간" | "낮음";
 }
 
+// Review Analysis API Types
+export interface AnalysisResult {
+  analysis_id: number;
+  analysis_type: string;
+  target_scope: string;
+  review_count: number;
+  sentiment_summary: SentimentSummary;
+  keywords: KeywordData[];
+  summary: ReviewSummary;
+  trends: TrendData[];
+  anomalies: AnomalyAlert[];
+  processing_time_ms: number;
+  llm_provider: string;
+  llm_model: string;
+  created_at: string | null;
+}
+
+export interface ReviewSummary {
+  overall: string;
+  positives: string[];
+  negatives: string[];
+  suggestions: string[];
+}
+
+export interface TrendData {
+  week: string;
+  positive: number;
+  negative: number;
+  neutral: number;
+  total: number;
+  positive_ratio: number;
+  negative_ratio: number;
+  neutral_ratio: number;
+}
+
+export interface AnomalyAlert {
+  week: string;
+  type: string;
+  value: number;
+  expected: number;
+  deviation: number;
+  message: string;
+}
+
+export interface SearchResult {
+  id: string;
+  text: string;
+  similarity: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface AnalysisSettings {
+  auto_batch_enabled: boolean;
+  batch_trigger_count: number;
+  batch_schedule: string | null;
+  default_batch_size: number;
+}
+
 // Documents
 export interface DocumentTemplate {
   id: string;
