@@ -1,9 +1,0 @@
-services:
-  iot-relay:
-    build: .
-    container_name: iot-relay
-    ports:
-      - "9000:9000"
-    env_file:
-      - .env
-    restart: unless-stopped
