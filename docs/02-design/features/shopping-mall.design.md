@@ -989,7 +989,7 @@ class ProductSchema(BaseModel):
 2. [ ] `app/database.py` — SQLAlchemy + PostgreSQL 연결
 3. [ ] `app/models/` — 전체 모델 정의 (9개 테이블)
 4. [ ] `app/schemas/` — Pydantic 스키마 정의
-5. [ ] `db/seed.py` — 시드 데이터 스크립트 (40+ 상품 등)
+5. [ ] `bootstrap/shoppingmall.py` — 시드 데이터 스크립트 (40+ 상품 등)
 6. [ ] `app/main.py` — FastAPI 앱 + CORS 설정
 7. [ ] `app/routers/products.py` — 상품 목록/상세/검색 API
 8. [ ] `app/routers/categories.py` — 카테고리 API
@@ -1037,3 +1037,4 @@ class ProductSchema(BaseModel):
 |---------|------|---------|--------|
 | 0.1 | 2026-04-02 | Initial design (FastAPI + PostgreSQL + React+Vite) | clover0309 |
 | 0.2 | 2026-04-02 | Stack change: Next.js → React+Vite, FarmOS 프론트엔드 스택 통일 | clover0309 |
+

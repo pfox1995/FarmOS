@@ -492,7 +492,7 @@ React+Vite  FastAPI    PostgreSQL
 **DB 팀:**
 1. PostgreSQL 테이블 스키마 정의 (models/)
 2. Pydantic 스키마 정의 (schemas/)
-3. 시드 데이터 스크립트 작성 (db/seed.py)
+3. 시드 데이터 스크립트 작성 (bootstrap/shoppingmall.py)
 4. 더미 데이터 생성 (40+ 상품, 12 카테고리, 5 스토어, 5 사용자, 30+ 리뷰)
 
 **Backend 팀:**
@@ -548,7 +548,7 @@ React+Vite  FastAPI    PostgreSQL
 cd shopping_mall/backend
 uv venv                     # 가상환경 생성
 uv sync                     # 의존성 설치
-python db/seed.py            # 더미 데이터 시드
+python ../../bootstrap/shoppingmall.py --mode init --skip-sync  # 더미 데이터 시드
 python main.py               # http://localhost:4000 (Swagger: /docs)
 ```
 
@@ -584,3 +584,4 @@ Shopping Mall Frontend: http://localhost:5174  (신규)
 | 0.1 | 2026-04-02 | Initial draft (Express + JSON) | clover0309 |
 | 0.2 | 2026-04-02 | Stack change: Python + FastAPI + PostgreSQL, FarmOS 충돌 방지 전략 추가 | clover0309 |
 | 0.3 | 2026-04-02 | Stack change: Next.js → React+Vite, FarmOS 프론트엔드 스택 통일 | clover0309 |
+

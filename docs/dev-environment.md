@@ -40,7 +40,7 @@ FarmOS/
 ├── shopping_mall/     # 쇼핑몰 모듈 (독립 패키지)
 │   ├── backend/       # FastAPI (port 4000, sync SQLAlchemy + psycopg2)
 │   │   ├── app/       # 라우터, 모델, 스키마, 서비스
-│   │   ├── db/        # seed.py, seed_backoffice.py
+│   │   ├── db/        # DB 모듈
 │   │   └── .env       # DB 접속 정보
 │   └── frontend/      # React + Vite (port 5174)
 ├── docs/              # 프로젝트 문서
@@ -211,8 +211,7 @@ DATABASE_URL=postgresql+psycopg2://postgres:root@localhost:5432/farmos
 
 ```bash
 cd shopping_mall/backend
-uv run python db/seed.py
-uv run python db/seed_backoffice.py
+python ../../bootstrap/shoppingmall.py --mode init --skip-sync
 ```
 
 ### 서버 실행
@@ -245,3 +244,4 @@ start-all.bat
 | Shop Frontend | http://localhost:5174 |
 
 종료: 아무 키를 누르면 모든 서버가 한번에 종료됩니다.
+
