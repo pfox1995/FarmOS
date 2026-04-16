@@ -63,7 +63,7 @@ LEGACY_TABLE_NAMES = [
     "rag_documents",
     "targets",
 ]
-LOG_PREFIX = "PEST"
+LOG_PREFIX = "PESTICIDE"
 
 PARSER = argparse.ArgumentParser(
     description="농약 원본 JSON(json_raw)을 정제하여 PostgreSQL RAG 테이블에 적재합니다."

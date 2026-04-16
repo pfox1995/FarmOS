@@ -6,6 +6,7 @@ import shutil
 import socket
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -19,7 +20,7 @@ class BootstrapError(RuntimeError):
 
 
 ROOT_LOG_PREFIX = "Bootstrap"
-LOG_PREFIX_WIDTH = 11
+LOG_PREFIX_WIDTH = 10
 _current_log_prefix = ROOT_LOG_PREFIX
 
 
@@ -40,7 +41,7 @@ def info(message: str) -> None:
 
 def error(message: str) -> None:
     print(
-        f"[{_format_log_prefix(_current_log_prefix)}] ERROR: {message}", file=sys.stderr
+        f"[{_format_log_prefix(_current_log_prefix)}] 오류: {message}", file=sys.stderr
     )
 
 
@@ -52,7 +53,7 @@ def _sql_literal(value: str) -> str:
 def _sql_identifier(name: str) -> str:
     """SQL 식별자를 안전하게 이스케이프한다."""
     if not name:
-        raise BootstrapError("Identifier must not be empty.")
+        raise BootstrapError("식별자(identifier)는 비어 있을 수 없습니다.")
     return '"' + name.replace('"', '""') + '"'
 
 
@@ -77,9 +78,9 @@ def normalize_db_url(db_url: str) -> str:
 def parse_database_url(db_url: str) -> dict[str, str]:
     parsed = urlparse(normalize_db_url(db_url))
     if parsed.scheme != "postgresql":
-        raise BootstrapError(f"Unsupported DATABASE_URL scheme: {parsed.scheme}")
+        raise BootstrapError(f"지원하지 않는 DATABASE_URL 스킴입니다: {parsed.scheme}")
     if not parsed.hostname or not parsed.username:
-        raise BootstrapError("DATABASE_URL must include host and username.")
+        raise BootstrapError("DATABASE_URL에는 host와 username이 포함되어야 합니다.")
 
     return {
         "host": parsed.hostname,
@@ -116,7 +117,7 @@ def detect_database_url(
 def resolve_command(command: list[str]) -> list[str]:
     """Windows의 cmd/bat 실행을 안전하게 보정한다."""
     if not command:
-        raise BootstrapError("Empty command is not allowed.")
+        raise BootstrapError("빈 명령은 허용되지 않습니다.")
 
     executable = command[0]
     resolved = shutil.which(executable) or executable
@@ -151,39 +152,96 @@ def run_command(
     )
     if check and result.returncode != 0:
         raise BootstrapError(
-            f"Command failed ({result.returncode}): {' '.join(command)}"
+            f"명령 실행 실패({result.returncode}): {' '.join(command)}"
         )
     return result
 
 
 def ensure_tools(*tools: str) -> None:
-    missing = [tool for tool in tools if shutil.which(tool) is None]
+    missing: list[str] = []
+    for tool in tools:
+        if tool == "psql":
+            if resolve_psql_executable() is None:
+                missing.append(tool)
+            continue
+        if shutil.which(tool) is None:
+            missing.append(tool)
     if missing:
         raise BootstrapError(
-            f"Required tool(s) not found in PATH: {', '.join(missing)}"
+            f"필수 도구를 PATH에서 찾을 수 없습니다: {', '.join(missing)}"
         )
 
 
+@lru_cache(maxsize=1)
+def resolve_psql_executable() -> str | None:
+    """psql 실행 파일 경로를 탐색한다.
+
+    우선순위:
+    1) PSQL_EXE 환경변수
+    2) PATH의 psql
+    3) (Windows) 일반 PostgreSQL 설치 경로 탐색
+    """
+    explicit = os.getenv("PSQL_EXE")
+    if explicit and Path(explicit).exists():
+        return explicit
+
+    from_path = shutil.which("psql")
+    if from_path:
+        return from_path
+
+    if os.name != "nt":
+        return None
+
+    windows_candidates: list[Path] = []
+    pghome = os.getenv("PGHOME")
+    if pghome:
+        windows_candidates.append(Path(pghome) / "bin" / "psql.exe")
+
+    pg_bin = os.getenv("PG_BIN")
+    if pg_bin:
+        windows_candidates.append(Path(pg_bin) / "psql.exe")
+
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.getenv(env_name)
+        if not base:
+            continue
+        root = Path(base) / "PostgreSQL"
+        if not root.exists():
+            continue
+        windows_candidates.extend(sorted(root.glob("*/bin/psql.exe"), reverse=True))
+
+    for candidate in windows_candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 def ensure_postgres_running(db_conf: dict[str, str]) -> None:
-    info(f"Checking PostgreSQL server ({db_conf['host']}:{db_conf['port']})...")
+    info(f"PostgreSQL 서버 연결 확인 중 ({db_conf['host']}:{db_conf['port']})...")
     try:
         with socket.create_connection(
             (db_conf["host"], int(db_conf["port"])), timeout=2
         ):
             pass
     except OSError as exc:
-        raise BootstrapError(f"PostgreSQL is not reachable: {exc}") from exc
+        raise BootstrapError(f"PostgreSQL 서버에 연결할 수 없습니다: {exc}") from exc
 
     probe = psql_query(db_conf, "SELECT 1;", database="postgres")
     if probe != "1":
-        raise BootstrapError("Failed to verify PostgreSQL connection with SELECT 1.")
+        raise BootstrapError("SELECT 1 쿼리로 PostgreSQL 연결 검증에 실패했습니다.")
 
 
 def psql_query(db_conf: dict[str, str], sql: str, database: str | None = None) -> str:
+    psql_executable = resolve_psql_executable()
+    if psql_executable is None:
+        raise BootstrapError(
+            "psql 실행 파일을 찾을 수 없습니다. "
+            "PostgreSQL의 'bin' 디렉터리를 PATH에 추가하거나 PSQL_EXE 환경변수를 설정하세요."
+        )
     target_db = database or db_conf["database"]
     result = run_command(
         [
-            "psql",
+            psql_executable,
             "-h",
             db_conf["host"],
             "-p",
@@ -211,7 +269,7 @@ def ensure_database_exists(db_conf: dict[str, str]) -> None:
     )
     if exists == "1":
         return
-    info(f"Database '{db_name}' not found. Creating...")
+    info(f"데이터베이스 '{db_name}'가 없어 새로 생성합니다.")
     psql_query(
         db_conf, f"CREATE DATABASE {_sql_identifier(db_name)};", database="postgres"
     )

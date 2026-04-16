@@ -11,6 +11,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
-python "%~dp0bootstrap.py" --initialize %*
+python "%~dp0bootstrap.py" %*
 pause
 exit /b %errorlevel%

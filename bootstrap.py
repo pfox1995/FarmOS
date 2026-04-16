@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
-from bootstrap._bootstrap_common import resolve_command
+from bootstrap._bootstrap_common import resolve_command, resolve_psql_executable
 
 ROOT = Path(__file__).resolve().parent
 LOG_DIR = ROOT / "logs"
@@ -41,6 +41,8 @@ class BootstrapError(RuntimeError):
 class BootstrapOptions:
     """부트스트랩 실행 옵션."""
 
+    initialize: bool = False
+    rebuild_schema: bool = False
     verbose_table_info: bool = False
 
 
@@ -66,11 +68,11 @@ class InputReaderController:
 
 
 def info(message: str) -> None:
-    print(f"[Bootstrap] {message}")
+    print(f"[Bootstrap ] {message}")
 
 
 def fail(message: str, code: int = 1) -> None:
-    print(f"[Bootstrap] ERROR: {message}", file=sys.stderr)
+    print(f"[Bootstrap ] 오류: {message}", file=sys.stderr)
     raise SystemExit(code)
 
 
@@ -106,10 +108,10 @@ def run_command(
     return result
 
 
-def check_required_tools() -> None:
-    missing = [
-        tool for tool in ("python", "npm", "uv", "psql") if shutil.which(tool) is None
-    ]
+def check_required_tools(require_db_tools: bool = False) -> None:
+    missing = [tool for tool in ("python", "npm", "uv") if shutil.which(tool) is None]
+    if require_db_tools and resolve_psql_executable() is None:
+        missing.append("psql")
     if missing:
         raise BootstrapError(f"필수 도구가 PATH에 없습니다: {', '.join(missing)}")
 
@@ -117,7 +119,7 @@ def check_required_tools() -> None:
 def ensure_uv_project(project_dir: Path, label: str, log_name: str) -> None:
     if not (project_dir / "pyproject.toml").exists():
         raise BootstrapError(f"{label}: pyproject.toml 누락 ({project_dir})")
-    info(f"{label}: uv sync 실행")
+    info(f"{label}: uv sync 실행 - 시간이 많이 걸릴 수 있습니다")
     run_command(["uv", "sync"], cwd=project_dir, log_file=LOG_DIR / log_name)
 
 
@@ -176,7 +178,7 @@ def ensure_npm_project(project_dir: Path, label: str, log_name: str) -> None:
     if not should_install:
         return
 
-    info(f"{label}: npm install 실행")
+    info(f"{label}: npm install 실행 - 시간이 많이 걸릴 수 있습니다")
     run_command(["npm", "install"], cwd=project_dir, log_file=LOG_DIR / log_name)
     write_npm_state_stamp(project_dir, compute_npm_state_hash(project_dir))
 
@@ -184,38 +186,70 @@ def ensure_npm_project(project_dir: Path, label: str, log_name: str) -> None:
 def parse_args() -> BootstrapOptions:
     parser = argparse.ArgumentParser(description="FarmOS 통합 부트스트랩")
     parser.add_argument(
+        "--initialize",
+        action="store_true",
+        help=(
+            "DB/테이블 점검 및 필요 시 재초기화를 수행합니다. "
+            "기본 실행은 DB 점검 없이 의존성 설치/서비스 실행만 진행합니다."
+        ),
+    )
+    parser.add_argument(
+        "--rebuild-schema",
+        action="store_true",
+        help=(
+            "DB 초기화 시 테이블 스키마를 강제 재구성합니다. "
+            "(--initialize와 함께만 사용 가능)"
+        ),
+    )
+    parser.add_argument(
         "--verbose-table-info",
         action="store_true",
-        help="DB 초기화 요약에 테이블 상세(컬럼/row 수)를 출력",
+        help="DB 초기화 요약에 테이블 상세(컬럼/row 수)를 출력 (--initialize와 함께 사용)",
     )
     args = parser.parse_args()
-    return BootstrapOptions(verbose_table_info=args.verbose_table_info)
+    if args.rebuild_schema and not args.initialize:
+        parser.error("--rebuild-schema는 --initialize와 함께만 사용할 수 있습니다.")
+    if args.verbose_table_info and not args.initialize:
+        parser.error("--verbose-table-info는 --initialize와 함께만 사용할 수 있습니다.")
+    return BootstrapOptions(
+        initialize=args.initialize,
+        rebuild_schema=args.rebuild_schema,
+        verbose_table_info=args.verbose_table_info,
+    )
 
 
 def ensure_databases(options: BootstrapOptions) -> None:
     """DB/테이블 점검 및 필요 시 초기화를 `bootstrap/` 하위에 위임한다."""
     info("ShoppingMall DB 점검/초기화")
     shop_command = [
+        "uv",
+        "run",
         "python",
-        str(Path("bootstrap") / "shoppingmall.py"),
+        str(ROOT / "bootstrap" / "shoppingmall_seed.py"),
         "--mode",
         "ensure",
         "--skip-sync",
     ]
     if options.verbose_table_info:
         shop_command.append("--verbose-table-info")
-    run_command(shop_command, cwd=ROOT)
+    if options.rebuild_schema:
+        shop_command.append("--rebuild-schema")
+    run_command(shop_command, cwd=SHOP_BACKEND_DIR)
     info("FarmOS DB 점검/초기화")
     farmos_command = [
+        "uv",
+        "run",
         "python",
-        str(Path("bootstrap") / "farmos.py"),
+        str(ROOT / "bootstrap" / "farmos_seed.py"),
         "--mode",
         "ensure",
         "--skip-sync",
     ]
     if options.verbose_table_info:
         farmos_command.append("--verbose-table-info")
-    run_command(farmos_command, cwd=ROOT)
+    if options.rebuild_schema:
+        farmos_command.append("--rebuild-schema")
+    run_command(farmos_command, cwd=FARMOS_BACKEND_DIR)
 
 
 def start_service(
@@ -308,12 +342,12 @@ def report_service_failures(services: list[ServiceProcess]) -> tuple[bool, bool]
         )
         tail_lines = read_log_tail(service.log_path, line_count=30)
         if tail_lines:
-            print(f"[Bootstrap] {service.name} 최근 로그 (마지막 30줄):")
+            print(f"[Bootstrap ] {service.name} 최근 로그 (마지막 30줄):")
             for line in tail_lines:
-                print(f"[Bootstrap]   {line}")
+                print(f"[Bootstrap ]   {line}")
         else:
             print(
-                f"[Bootstrap] {service.name} 로그가 비어 있거나 읽을 수 없습니다: {service.log_path}"
+                f"[Bootstrap ] {service.name} 로그가 비어 있거나 읽을 수 없습니다: {service.log_path}"
             )
     all_stopped = bool(services) and not any_running
     return has_failure, all_stopped
@@ -368,8 +402,11 @@ def run(options: BootstrapOptions) -> None:
     info("Shop Backend     : http://localhost:4000")
     info("Shop Frontend    : http://localhost:5174")
 
-    check_required_tools()
-    ensure_databases(options)
+    check_required_tools(require_db_tools=options.initialize)
+    if options.initialize:
+        ensure_databases(options)
+    else:
+        info("DB 점검/초기화 생략 (기본 모드, --initialize 미지정)")
 
     ensure_uv_project(FARMOS_BACKEND_DIR, "FarmOS Backend", "farmos-be-setup.log")
     ensure_uv_project(SHOP_BACKEND_DIR, "Shop Backend", "shop-be-setup.log")

@@ -4,7 +4,6 @@
 """shop_reviews 더미데이터 1,000건 생성 스크립트.
 
 기존 데이터 전부 삭제 후 1,000건 새로 INSERT.
-원본 scripts/seed_reviews.py 로직을 bootstrap으로 이관한 버전이다.
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ if str(SHOP_BACKEND_DIR) not in sys.path:
 
 from app.database import SessionLocal
 
-LOG_PREFIX = "SHOP-RSEED"
+LOG_PREFIX = "S.Mall-RS"
 
 POSITIVE_TEMPLATES = [
     "정말 맛있어요! {product} 품질이 최고입니다.",
