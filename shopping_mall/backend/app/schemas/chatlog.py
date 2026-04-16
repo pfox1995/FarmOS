@@ -18,9 +18,15 @@ class ChatQuestion(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     question: str
-    user_id: Optional[int] = None
     session_id: Optional[int] = None
     history: List[ChatHistoryItem] = []
+
+
+class TraceStepSchema(BaseModel):
+    tool: str
+    arguments: dict
+    result: str
+    iteration: int
 
 
 class ChatAnswer(BaseModel):
@@ -29,6 +35,7 @@ class ChatAnswer(BaseModel):
     answer: str
     intent: str
     escalated: bool = False
+    trace: Optional[List[TraceStepSchema]] = None  # debug=true 시에만 포함
 
 
 class ChatLogResponse(BaseModel):

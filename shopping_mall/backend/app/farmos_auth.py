@@ -1,16 +1,13 @@
 """FarmOS JWT 세션 공유 — farmos_token 쿠키에서 사용자 정보 추출."""
 
-import os
-
-from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, Request, status
 from jose import JWTError, jwt
 
-load_dotenv()
+from app.core.config import settings
 
 # FarmOS 백엔드와 동일한 JWT 시크릿 키를 사용해야 함
 # 환경변수 JWT_SECRET_KEY를 양쪽에서 공유
-FARMOS_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+FARMOS_SECRET_KEY = settings.jwt_secret_key
 ALGORITHM = "HS256"
 COOKIE_KEY = "farmos_token"
 

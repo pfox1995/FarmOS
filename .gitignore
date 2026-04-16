@@ -15,6 +15,9 @@ build/
 # ========== ChromaDB ==========
 chroma_data/
 
+# ========== 정책 문서 (PDF/DOCX — 로컬 배치, 커밋 제외) ==========
+shopping_mall/backend/ai/docs/
+
 # ========== Environment variables ==========
 .env
 .env.local

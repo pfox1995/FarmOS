@@ -14,6 +14,7 @@ from .weekly_report import WeeklyReport
 from .customer_segment import CustomerSegment
 from .chat_session import ChatSession
 from .chat_log import ChatLog
+from .exchange_request import ExchangeRequest
 
 __all__ = [
     "Category",
@@ -33,4 +34,5 @@ __all__ = [
     "CustomerSegment",
     "ChatSession",
     "ChatLog",
+    "ExchangeRequest",
 ]

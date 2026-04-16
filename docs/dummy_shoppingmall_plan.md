@@ -139,8 +139,7 @@
 # Backend (port 4000)
 cd shopping_mall/backend
 uv sync
-uv run python db/seed.py
-uv run python db/seed_backoffice.py
+python ../../bootstrap/shoppingmall.py --mode init --skip-sync
 uv run python main.py
 
 # Frontend (port 5174)
@@ -148,5 +147,6 @@ cd shopping_mall/frontend
 npm install && npm run dev
 
 # 또는 전체 서비스 한번에 실행
-start-all.bat
+bootstrap.cmd
 ```
+

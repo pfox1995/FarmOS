@@ -1,7 +1,7 @@
 """농약 DB API 라우터 — 검색 및 동기화."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import distinct, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -21,29 +21,35 @@ async def search_pesticide(
     db: AsyncSession = Depends(get_db),
 ):
     """농약 제품명/브랜드명 검색 (자동완성용)."""
-    from sqlalchemy import or_
-
     result = await db.execute(
-        select(PesticideProduct)
+        select(
+            distinct(PesticideProduct.ingredient_or_formulation_name),
+            PesticideProduct.brand_name,
+            PesticideProduct.corporation_name,
+            PesticideProduct.usage_purpose_name,
+            PesticideProduct.formulation_name,
+        )
         .where(
             or_(
-                PesticideProduct.product_name.ilike(f"%{q}%"),
+                PesticideProduct.ingredient_or_formulation_name.ilike(f"%{q}%"),
                 PesticideProduct.brand_name.ilike(f"%{q}%"),
             )
         )
         .limit(limit)
     )
-    products = result.scalars().all()
+    products = result.all()
     return {
+        # TODO: 응답 키를 모델/DB 컬럼명 기준으로 정렬 필요.
+        # NOTE: backend 응답 스키마와 frontend 타입/사용처를 함께 수정해야 함.
         "results": [
             {
-                "product_name": p.product_name,
-                "brand_name": p.brand_name,
-                "company": p.company,
-                "purpose": p.purpose,
-                "form_type": p.form_type,
+                "product_name": product_name,
+                "brand_name": brand_name,
+                "company": company,
+                "purpose": purpose,
+                "form_type": form_type,
             }
-            for p in products
+            for product_name, brand_name, company, purpose, form_type in products
         ],
         "total": len(products),
     }
@@ -54,7 +60,7 @@ async def trigger_sync(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """농약 DB 수동 동기화 (식품안전나라 API)."""
+    """레거시 호환: bootstrap 적재 결과 기준으로 현재 제품 수를 반환."""
     try:
         count = await sync_pesticides(db)
         return {"status": "ok", "synced_count": count}

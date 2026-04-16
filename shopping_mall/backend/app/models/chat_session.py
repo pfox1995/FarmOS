@@ -1,5 +1,6 @@
 from datetime import datetime
-from sqlalchemy import Integer, String, ForeignKey, func, Index
+from typing import Optional
+from sqlalchemy import Integer, String, Text, ForeignKey, func, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
@@ -21,6 +22,9 @@ class ChatSession(Base):
         ),
     )
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 확인 대기 중인 액션을 JSON 문자열로 저장 (예: 교환 신청 대기)
+    # {"type": "exchange_request", "exchange_request_id": 42, "summary": "..."}
+    pending_action: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=func.now())
     updated_at: Mapped[datetime] = mapped_column(default=func.now(), onupdate=func.now())
     closed_at: Mapped[datetime | None] = mapped_column(nullable=True)

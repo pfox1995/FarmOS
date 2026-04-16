@@ -1,98 +1,48 @@
-"""LLM client using Ollama API with graceful fallback."""
+"""리포트/비용분류용 LLM 클라이언트 — OpenAI 호환 API."""
 import logging
-from typing import Optional
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from app.core.config import settings
 
-OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_MODEL = "qwen2.5:7b"
-DEFAULT_MODEL_EMBED = "all-minilm"
+logger = logging.getLogger(__name__)
 
 
 class LLMClient:
-    """Async client for Ollama LLM API with fallback responses."""
+    """OpenAI 호환 클라이언트 — Ollama·OpenRouter·OpenAI 모두 지원."""
 
     def __init__(
         self,
-        base_url: str = OLLAMA_BASE_URL,
-        model: str = DEFAULT_MODEL,
-        embed_model: str = DEFAULT_MODEL_EMBED,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
     ):
-        self.base_url = base_url
-        self.model = model
-        self.embed_model = embed_model
+        self.base_url = (base_url or settings.utility_llm_base_url).rstrip("/")
+        self.api_key = api_key or settings.utility_llm_api_key
+        self.model = model or settings.utility_llm_model
 
     async def generate(self, prompt: str, system: str = "") -> str:
-        """Generate text from a prompt. Falls back to placeholder on error."""
+        """단일 프롬프트로 텍스트를 생성합니다. 실패 시 폴백 반환."""
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                payload = {
-                    "model": self.model,
-                    "prompt": prompt,
-                    "system": system,
-                    "stream": False,
-                }
-                resp = await client.post(f"{self.base_url}/api/generate", json=payload)
+                resp = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    json={"model": self.model, "messages": messages},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
                 resp.raise_for_status()
-                return resp.json().get("response", "")
+                return resp.json()["choices"][0]["message"]["content"]
         except Exception as e:
-            logger.warning(f"Ollama generate failed: {e}")
-            return self._fallback_generate(prompt)
-
-    async def chat(self, messages: list[dict]) -> str:
-        """Chat completion. Falls back to placeholder on error."""
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                payload = {
-                    "model": self.model,
-                    "messages": messages,
-                    "stream": False,
-                }
-                resp = await client.post(f"{self.base_url}/api/chat", json=payload)
-                resp.raise_for_status()
-                return resp.json().get("message", {}).get("content", "")
-        except Exception as e:
-            logger.warning(f"Ollama chat failed: {e}")
-            return "[AI 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.]"
-
-    async def embed(self, text: str) -> list[float]:
-        """Get text embedding using embedding model. Returns empty list on error."""
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                payload = {
-                    "model": self.embed_model,
-                    "input": text,
-                }
-                resp = await client.post(f"{self.base_url}/api/embed", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                embeddings = data.get("embeddings", [[]])
-                return embeddings[0] if embeddings else []
-        except Exception as e:
-            logger.warning(f"Ollama embed failed: {e}")
-            return []
-
-    async def classify_intent(self, query: str) -> str:
-        """Classify user intent from a query string."""
-        prompt = (
-            "사용자 질문의 의도를 다음 중 하나로 분류하세요: "
-            "delivery(배송), stock(재고), storage(보관방법), season(제철정보), "
-            "exchange(교환/환불), other(기타)\n\n"
-            f"질문: {query}\n\n"
-            "의도(영어 한 단어만):"
-        )
-        result = await self.generate(prompt, system="당신은 의도 분류 전문가입니다. 영어 한 단어로만 답하세요.")
-        result = result.strip().lower()
-        valid_intents = {"delivery", "stock", "storage", "season", "exchange", "other"}
-        for intent in valid_intents:
-            if intent in result:
-                return intent
-        return "other"
+            logger.warning(f"LLM generate failed: {e}")
+            return self._fallback(prompt)
 
     async def generate_report(self, data: dict) -> str:
-        """Generate weekly report insight text from aggregated data."""
+        """주간 매출 데이터를 분석해 인사이트 텍스트를 생성합니다."""
         prompt = (
             "다음 주간 매출 데이터를 분석하여 한국어로 인사이트를 작성하세요.\n\n"
             f"기간: {data.get('week_start', '')} ~ {data.get('week_end', '')}\n"
@@ -105,7 +55,7 @@ class LLMClient:
         return await self.generate(prompt, system="당신은 농산물 쇼핑몰 비즈니스 분석가입니다.")
 
     async def classify_expense(self, description: str) -> str:
-        """Classify an expense description into a category."""
+        """비용 설명을 카테고리로 분류합니다."""
         prompt = (
             "다음 비용 설명을 카테고리로 분류하세요. "
             "카테고리: packaging, shipping, material, labor, utility, marketing, other\n\n"
@@ -120,8 +70,8 @@ class LLMClient:
                 return cat
         return "other"
 
-    def _fallback_generate(self, prompt: str) -> str:
-        """Provide rule-based fallback when LLM is unavailable."""
+    def _fallback(self, prompt: str) -> str:
+        """LLM 연결 불가 시 규칙 기반 폴백."""
         prompt_lower = prompt.lower()
         if "분류" in prompt_lower or "classify" in prompt_lower:
             return "other"

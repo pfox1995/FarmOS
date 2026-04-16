@@ -70,11 +70,8 @@ cd shopping_mall/backend
 uv venv
 uv sync
 
-# 기본 쇼핑몰 더미 데이터 시드
-uv run python db/seed.py
-
-# 백오피스 더미 데이터 시드
-uv run python db/seed_backoffice.py
+# 쇼핑몰/백오피스/리뷰 시드 통합 실행 (bootstrap)
+uv run ../../bootstrap/shoppingmall.py --mode init --skip-sync
 
 # 서버 실행
 uv run python main.py
@@ -191,3 +188,4 @@ curl http://localhost:4000/api/analytics/segments \
 | `nvidia-smi` 안 됨 | NVIDIA 드라이버 미설치 | 드라이버 설치 후 재부팅 |
 | Ollama 모델 다운로드 느림 | 네트워크 | `llama3.1:8b`는 약 4.7GB, 시간 소요 정상 |
 | port 4000 사용 중 | 다른 프로세스 | `netstat -ano \| findstr :4000` 으로 확인 |
+

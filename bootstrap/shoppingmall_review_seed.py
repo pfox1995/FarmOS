@@ -1,32 +1,34 @@
+#!/usr/bin/env python
+# ruff: noqa: E402
+# pyright: reportMissingImports=false, reportMissingModuleSource=false
 """shop_reviews 더미데이터 1,000건 생성 스크립트.
 
-감성 분포:
-  - 긍정 (positive, rating 4-5): 50% = 500건
-  - 부정 (negative, rating 1-2): 25% = 250건
-  - 중립 (neutral, rating 3):    25% = 250건
-
 기존 데이터 전부 삭제 후 1,000건 새로 INSERT.
-shop_products (42개), shop_users (5명) FK 참조.
-
-실행:
-  cd FarmOS
-  python scripts/seed_reviews.py
+원본 scripts/seed_reviews.py 로직을 bootstrap으로 이관한 버전이다.
 """
+
+from __future__ import annotations
 
 import random
 import sys
-import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
-# shopping_mall 패키지 경로 추가
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "shopping_mall", "backend"))
-
-from app.database import engine, SessionLocal
+from _bootstrap_common import (  # type: ignore[import-not-found]
+    error,
+    info,
+    set_log_prefix,
+)
 from sqlalchemy import text
 
-# --------------------------------------------------------------------------
-# 리뷰 템플릿 (농산물 도메인 특화)
-# --------------------------------------------------------------------------
+ROOT = Path(__file__).resolve().parents[1]
+SHOP_BACKEND_DIR = ROOT / "shopping_mall" / "backend"
+if str(SHOP_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(SHOP_BACKEND_DIR))
+
+from app.database import SessionLocal
+
+LOG_PREFIX = "SHOP-RSEED"
 
 POSITIVE_TEMPLATES = [
     "정말 맛있어요! {product} 품질이 최고입니다.",
@@ -132,28 +134,58 @@ NEGATIVE_TEMPLATES = [
     "3만원 주고 이걸 받을 줄은 몰랐어요. 환불해주세요.",
 ]
 
-# 상품명 (42개 상품)
 PRODUCT_NAMES = [
-    "경북 부사 사과 5kg", "충남 신고배 7.5kg", "청송 꿀사과 3kg", "나주배 선물세트 5kg",
-    "홍로사과 2kg", "제주 감귤 5kg", "제주 한라봉 3kg", "카라카라 오렌지 2kg",
-    "천혜향 2kg", "레드향 3kg", "유기농 상추 300g", "깻잎 100매",
-    "시금치 500g", "배추 1포기", "청경채 200g", "감자 3kg",
-    "고구마 3kg", "당근 1kg", "양파 3kg", "무 1개",
-    "한우 등심 1++ 300g", "한우 갈비살 500g", "한우 채끝 200g", "한우 불고기용 300g",
-    "한우 사골 2kg", "제주 흑돼지 삼겹살 500g", "목살 구이용 500g", "돼지갈비 양념 1kg",
-    "노르웨이 생연어 300g", "제주 광어회 500g", "고등어 2마리", "참치회 400g",
-    "갈치 2마리", "통영 생굴 1kg", "킹크랩 1마리 (1.5kg)", "새우 (대) 1kg",
-    "전복 10마리", "오징어 3마리", "유기농 블루베리 500g", "친환경 방울토마토 1kg",
-    "유기농 브로콜리 2개", "흙당근 2kg",
+    "경북 부사 사과 5kg",
+    "충남 신고배 7.5kg",
+    "청송 꿀사과 3kg",
+    "나주배 선물세트 5kg",
+    "홍로사과 2kg",
+    "제주 감귤 5kg",
+    "제주 한라봉 3kg",
+    "카라카라 오렌지 2kg",
+    "천혜향 2kg",
+    "레드향 3kg",
+    "유기농 상추 300g",
+    "깻잎 100매",
+    "시금치 500g",
+    "배추 1포기",
+    "청경채 200g",
+    "감자 3kg",
+    "고구마 3kg",
+    "당근 1kg",
+    "양파 3kg",
+    "무 1개",
+    "한우 등심 1++ 300g",
+    "한우 갈비살 500g",
+    "한우 채끝 200g",
+    "한우 불고기용 300g",
+    "한우 사골 2kg",
+    "제주 흑돼지 삼겹살 500g",
+    "목살 구이용 500g",
+    "돼지갈비 양념 1kg",
+    "노르웨이 생연어 300g",
+    "제주 광어회 500g",
+    "고등어 2마리",
+    "참치회 400g",
+    "갈치 2마리",
+    "통영 생굴 1kg",
+    "킹크랩 1마리 (1.5kg)",
+    "새우 (대) 1kg",
+    "전복 10마리",
+    "오징어 3마리",
+    "유기농 블루베리 500g",
+    "친환경 방울토마토 1kg",
+    "유기농 브로콜리 2개",
+    "흙당근 2kg",
 ]
-
 PRODUCT_IDS = list(range(1, 43))
 USER_IDS = list(range(1, 6))
 
 
 def generate_review(review_id: int, sentiment: str, product_id: int) -> dict:
-    """단일 리뷰 생성."""
-    product_name = PRODUCT_NAMES[product_id - 1] if product_id <= len(PRODUCT_NAMES) else "상품"
+    product_name = (
+        PRODUCT_NAMES[product_id - 1] if product_id <= len(PRODUCT_NAMES) else "상품"
+    )
 
     if sentiment == "positive":
         template = random.choice(POSITIVE_TEMPLATES)
@@ -161,12 +193,11 @@ def generate_review(review_id: int, sentiment: str, product_id: int) -> dict:
     elif sentiment == "neutral":
         template = random.choice(NEUTRAL_TEMPLATES)
         rating = 3
-    else:  # negative
+    else:
         template = random.choice(NEGATIVE_TEMPLATES)
         rating = random.choice([1, 1, 2, 2])
 
     content = template.format(product=product_name)
-
     days_ago = random.randint(0, 90)
     created_at = datetime.now() - timedelta(days=days_ago)
 
@@ -181,15 +212,9 @@ def generate_review(review_id: int, sentiment: str, product_id: int) -> dict:
 
 
 def generate_all_reviews(count: int = 1000) -> list[dict]:
-    """감성 분포에 맞춰 리뷰 생성.
-
-    긍정 50% = 500건
-    부정 25% = 250건
-    중립 25% = 250건
-    """
-    positive_count = int(count * 0.50)  # 500
-    negative_count = int(count * 0.25)  # 250
-    neutral_count = count - positive_count - negative_count  # 250
+    positive_count = int(count * 0.50)
+    negative_count = int(count * 0.25)
+    neutral_count = count - positive_count - negative_count
 
     reviews = []
     review_id = 1
@@ -209,89 +234,66 @@ def generate_all_reviews(count: int = 1000) -> list[dict]:
     return reviews
 
 
-def seed_to_db(reviews: list[dict]):
-    """기존 데이터 삭제 후 shop_reviews에 INSERT."""
+def seed_to_db(reviews: list[dict]) -> None:
     db = SessionLocal()
     try:
-        # 기존 데이터 전부 삭제
         result = db.execute(text("SELECT COUNT(*) FROM shop_reviews"))
         existing_count = result.scalar()
-        print(f"기존 리뷰 수: {existing_count}건 → 전부 삭제")
+        info(f"기존 리뷰 수: {existing_count}건 -> 전부 삭제")
         db.execute(text("DELETE FROM shop_reviews"))
-        db.commit()
 
-        # 배치 INSERT
         batch_size = 500
         total = len(reviews)
         inserted = 0
 
         for i in range(0, total, batch_size):
-            batch = reviews[i:i + batch_size]
+            batch = reviews[i : i + batch_size]
             values = []
-            for r in batch:
-                values.append({
-                    "product_id": r["product_id"],
-                    "user_id": r["user_id"],
-                    "rating": r["rating"],
-                    "content": r["content"],
-                    "created_at": r["created_at"],
-                })
+            for review in batch:
+                values.append(
+                    {
+                        "product_id": review["product_id"],
+                        "user_id": review["user_id"],
+                        "rating": review["rating"],
+                        "content": review["content"],
+                        "created_at": review["created_at"],
+                    }
+                )
 
             db.execute(
-                text("""
+                text(
+                    """
                     INSERT INTO shop_reviews (product_id, user_id, rating, content, created_at)
                     VALUES (:product_id, :user_id, :rating, :content, :created_at)
-                """),
+                    """
+                ),
                 values,
             )
-            db.commit()
             inserted += len(batch)
-            print(f"  진행: {inserted}/{total}건 ({inserted * 100 // total}%)")
+            info(f"진행: {inserted}/{total}건 ({inserted * 100 // total}%)")
 
-        # 최종 확인
         result = db.execute(text("SELECT COUNT(*) FROM shop_reviews"))
         final_count = result.scalar()
-        print(f"\n완료! 총 리뷰 수: {final_count}건")
-
-        # 감성 분포 확인
-        result = db.execute(text("""
-            SELECT
-                CASE
-                    WHEN rating >= 4 THEN 'positive'
-                    WHEN rating = 3 THEN 'neutral'
-                    ELSE 'negative'
-                END AS sentiment,
-                COUNT(*) as cnt
-            FROM shop_reviews
-            GROUP BY sentiment
-            ORDER BY sentiment
-        """))
-        print("\n감성 분포:")
-        for row in result:
-            print(f"  {row[0]}: {row[1]}건")
-
-    except Exception as e:
+        info(f"ShoppingMall 리뷰 재시드 완료: {final_count} rows")
+        db.commit()
+    except Exception:
         db.rollback()
-        print(f"에러 발생: {e}")
         raise
     finally:
         db.close()
 
 
-def main():
-    print("=" * 60)
-    print("FarmOS 리뷰 더미데이터 생성 스크립트")
-    print("=" * 60)
-    print(f"목표: 기존 전부 삭제 → 1,000건 새로 생성")
-    print(f"분포: 긍정 50%, 부정 25%, 중립 25%")
-    print()
-
-    random.seed(42)
-    reviews = generate_all_reviews(1000)
-    print(f"생성된 리뷰: {len(reviews)}건")
-
-    seed_to_db(reviews)
+def main() -> int:
+    set_log_prefix(LOG_PREFIX)
+    try:
+        random.seed(42)
+        reviews = generate_all_reviews(1000)
+        seed_to_db(reviews)
+        return 0
+    except Exception as exc:
+        error(str(exc))
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

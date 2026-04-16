@@ -1,7 +1,9 @@
 """Chatbot router."""
+import json
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -11,74 +13,68 @@ from app.models.chat_log import ChatLog
 from app.models.chat_session import ChatSession
 from app.schemas.chatlog import ChatQuestion, ChatAnswer, ChatLogResponse, ChatRating
 from app.schemas.chat_session import ChatSessionCreate, ChatSessionResponse, ChatSessionMessages
-from app.services.ai_chatbot import ChatbotService
+from app.services.agent_chatbot import AgentChatbotService
 from app.farmos_auth import get_farmos_user_optional, FarmOSUser
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/chatbot", tags=["chatbot"])
 
-_chatbot_service_instance: Optional[ChatbotService] = None
+_chatbot_service_instance: Optional[AgentChatbotService] = None
 
 
-def set_chatbot_service(service: ChatbotService) -> None:
+def set_chatbot_service(service: AgentChatbotService) -> None:
     """앱 시작 시 lifespan에서 싱글턴 서비스를 주입합니다."""
     global _chatbot_service_instance
     _chatbot_service_instance = service
 
 
-def _get_chatbot_service() -> ChatbotService:
+def _get_chatbot_service() -> AgentChatbotService:
     if _chatbot_service_instance is None:
         raise RuntimeError("Chatbot service not initialized. Check app startup.")
     return _chatbot_service_instance
+
+
+def _resolve_shop_user_id(farmos_user: FarmOSUser, db: Session) -> int:
+    """FarmOS JWT 사용자를 쇼핑몰 DB 사용자로 매핑 (없으면 생성)."""
+    user = db.query(User).filter(User.user_id == farmos_user.user_id).first()
+    if not user:
+        user = User(user_id=farmos_user.user_id, name=farmos_user.name)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user.id
 
 
 def _get_current_user_id(
     request: Request,
     db: Session = Depends(get_db),
 ) -> int:
-    """Extract user ID from FarmOS JWT token (authenticated) or X-User-Id header (guest).
-
-    For authenticated users: validates JWT and returns their shop user ID.
-    For guests: returns temporary guest ID from X-User-Id header.
-    Raises 401 if neither is available.
-    """
-    # Try to get authenticated user from JWT token
+    """JWT 쿠키에서 인증된 사용자 ID를 반환. 미인증 시 401."""
     farmos_user = get_farmos_user_optional(request)
     if farmos_user:
-        # Find or create user in shop database using login_user_id
-        user = db.query(User).filter(User.user_id == farmos_user.user_id).first()
-        if not user:
-            user = User(
-                user_id=farmos_user.user_id,
-                name=farmos_user.name,
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-        return user.id
+        return _resolve_shop_user_id(farmos_user, db)
+    raise HTTPException(status_code=401, detail="FarmOS 로그인이 필요합니다.")
 
-    # Fallback: allow guest with X-User-Id header
-    x_user_id_str = request.headers.get("X-User-Id")
-    if not x_user_id_str:
-        raise HTTPException(
-            status_code=401,
-            detail="인증이 필요합니다 (FarmOS 로그인 또는 X-User-Id 헤더)",
-        )
 
-    try:
-        return int(x_user_id_str)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="X-User-Id 헤더는 정수여야 합니다",
-        )
+def _get_current_user_id_optional(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> int | None:
+    """JWT 쿠키에서 인증된 사용자 ID를 반환. 미인증이면 None (게스트 허용)."""
+    farmos_user = get_farmos_user_optional(request)
+    if farmos_user:
+        return _resolve_shop_user_id(farmos_user, db)
+    return None
 
 
 @router.post("/ask", response_model=ChatAnswer)
 async def ask_question(
     body: ChatQuestion,
-    authenticated_user_id: int = Depends(_get_current_user_id),
-    db: Session = Depends(get_db)
+    authenticated_user_id: int | None = Depends(_get_current_user_id_optional),
+    db: Session = Depends(get_db),
+    debug: bool = Query(False, description="true 시 추론 trace 포함 반환"),
 ):
     """Submit a question to the AI chatbot."""
     # Guest request: no session validation needed
@@ -92,11 +88,11 @@ async def ask_question(
             history=history,
             session_id=None,
         )
-        return ChatAnswer(
-            answer=result["answer"],
-            intent=result["intent"],
-            escalated=result["escalated"],
-        )
+        return _build_answer(result, debug)
+
+    # 세션 요청 시 로그인 필수
+    if not authenticated_user_id:
+        raise HTTPException(status_code=401, detail="세션 사용은 로그인이 필요합니다.")
 
     # Authenticated request: validate that the session exists and belongs to the authenticated user
     session = db.query(ChatSession).filter(ChatSession.id == body.session_id).first()
@@ -114,26 +110,40 @@ async def ask_question(
         history=history,
         session_id=body.session_id,
     )
+    return _build_answer(result, debug)
+
+
+def _build_answer(result: dict, debug: bool) -> ChatAnswer:
+    from app.schemas.chatlog import TraceStepSchema
+    trace = None
+    if debug and result.get("trace"):
+        trace = [
+            TraceStepSchema(
+                tool=s.tool,
+                arguments=s.arguments,
+                result=s.result,
+                iteration=s.iteration,
+            )
+            for s in result["trace"]
+        ]
     return ChatAnswer(
         answer=result["answer"],
         intent=result["intent"],
         escalated=result["escalated"],
+        trace=trace,
     )
 
 
 @router.get("/history")
 def get_user_history(
-    user_id: int = Query(...),
     authenticated_user_id: int = Depends(_get_current_user_id),
     limit: int = Query(20, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
     """회원의 최근 대화 내역을 messages 형태로 반환."""
-    if user_id != authenticated_user_id:
-        raise HTTPException(status_code=403, detail="Cannot access other users' chat history")
     logs = (
         db.query(ChatLog)
-        .filter(ChatLog.user_id == user_id)
+        .filter(ChatLog.user_id == authenticated_user_id)
         .order_by(ChatLog.created_at.desc())
         .limit(limit)
         .all()
@@ -152,34 +162,43 @@ def list_chat_logs(
     user_id: Optional[int] = Query(None),
     intent: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    authenticated_user_id: int = Depends(_get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """List chat logs with optional filters."""
-    query = db.query(ChatLog)
-    if user_id is not None:
-        query = query.filter(ChatLog.user_id == user_id)
+    """List chat logs with optional filters. 자신의 로그만 조회 가능."""
+    query = db.query(ChatLog).filter(ChatLog.user_id == authenticated_user_id)
     if intent:
         query = query.filter(ChatLog.intent == intent)
     return query.order_by(ChatLog.created_at.desc()).limit(limit).all()
 
 
 @router.get("/logs/escalated", response_model=List[ChatLogResponse])
-def list_escalated_logs(db: Session = Depends(get_db)):
-    """List only escalated chat logs."""
+def list_escalated_logs(
+    authenticated_user_id: int = Depends(_get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """List only escalated chat logs for the current user."""
     return (
         db.query(ChatLog)
-        .filter(ChatLog.escalated.is_(True))
+        .filter(ChatLog.user_id == authenticated_user_id, ChatLog.escalated.is_(True))
         .order_by(ChatLog.created_at.desc())
         .all()
     )
 
 
 @router.put("/logs/{log_id}/rating", response_model=ChatLogResponse)
-def rate_chat_log(log_id: int, body: ChatRating, db: Session = Depends(get_db)):
+def rate_chat_log(
+    log_id: int,
+    body: ChatRating,
+    authenticated_user_id: int = Depends(_get_current_user_id),
+    db: Session = Depends(get_db),
+):
     """Rate a chatbot answer."""
     log = db.query(ChatLog).filter(ChatLog.id == log_id).first()
     if not log:
         raise HTTPException(status_code=404, detail="Chat log not found")
+    if log.user_id != authenticated_user_id:
+        raise HTTPException(status_code=403, detail="다른 사용자의 로그에 별점을 남길 수 없습니다.")
     log.rating = body.rating
     db.commit()
     db.refresh(log)
@@ -365,6 +384,23 @@ def close_session(
 
     if session.user_id != authenticated_user_id:
         raise HTTPException(status_code=403, detail="Cannot close other users' sessions")
+
+    # 대기 중인 교환 신청이 있으면 자동 취소
+    if session.pending_action:
+        try:
+            from app.models.exchange_request import ExchangeRequest
+            action = json.loads(session.pending_action)
+            if action.get("type") == "exchange_request":
+                exchange = db.query(ExchangeRequest).filter(
+                    ExchangeRequest.id == action["exchange_request_id"],
+                    ExchangeRequest.status == "pending_confirm",
+                ).first()
+                if exchange:
+                    exchange.status = "cancelled"
+                    db.add(exchange)
+        except Exception:
+            logger.exception("세션 종료 시 pending_action 정리 실패 (session_id=%s)", session_id)
+        session.pending_action = None
 
     session.status = "closed"
     session.closed_at = datetime.now(timezone.utc)

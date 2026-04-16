@@ -12,6 +12,11 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from _bootstrap_common import (  # type: ignore[import-not-found]
+    error,
+    info,
+    set_log_prefix,
+)
 from dotenv import dotenv_values, load_dotenv
 from sqlalchemy import (
     Boolean,
@@ -22,17 +27,17 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    inspect,
     select,
 )
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 SERVICE_ID = "I1910"
-DEFAULT_INPUT_DIR = Path("json_raw")
-DEFAULT_SQLITE_PATH = Path("sqlite3/rag.sqlite3")
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_INPUT_DIR = PROJECT_ROOT / "tools" / "api-crawler" / "json_raw"
 DEFAULT_BACKEND_ENV_PATH = PROJECT_ROOT / "backend" / ".env"
-DEFAULT_ENV_EXAMPLE_PATH = Path(__file__).resolve().parent / ".env.example"
+DEFAULT_ENV_EXAMPLE_PATH = PROJECT_ROOT / "tools" / "api-crawler" / ".env.example"
 DEFAULT_ENV_VALUES = (
     dotenv_values(DEFAULT_ENV_EXAMPLE_PATH) if DEFAULT_ENV_EXAMPLE_PATH.exists() else {}
 )
@@ -50,9 +55,18 @@ PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
 RESULT_FILE_PATTERN = re.compile(r"^(?P<start>\d+)-(?P<end>\d+)\.json$")
 USE_COUNT_RE = re.compile(r"(\d+)")
 DILUTION_RE = re.compile(r"(\d+(?:,\d+)?)")
+LEGACY_TABLE_NAMES = [
+    "crops",
+    "pesticide_products",
+    "product_applications",
+    "products",
+    "rag_documents",
+    "targets",
+]
+LOG_PREFIX = "PEST"
 
 PARSER = argparse.ArgumentParser(
-    description="json_raw의 농약 원본 JSON을 정제하여 SQLite3 또는 PostgreSQL RAG 테이블에 적재합니다."
+    description="농약 원본 JSON(json_raw)을 정제하여 PostgreSQL RAG 테이블에 적재합니다."
 )
 PARSER.add_argument(
     "--input-dir", type=Path, default=DEFAULT_INPUT_DIR, help="API raw JSON 디렉터리"
@@ -63,18 +77,6 @@ PARSER.add_argument(
     type=Path,
     default=DEFAULT_BACKEND_ENV_PATH,
     help="PostgreSQL 접속 정보 로딩에 사용할 backend/.env 경로",
-)
-PARSER.add_argument(
-    "--db-type",
-    choices=("sqlite", "postgresql"),
-    default="sqlite",
-    help="적재 대상 DB 종류",
-)
-PARSER.add_argument(
-    "--sqlite-path",
-    type=Path,
-    default=DEFAULT_SQLITE_PATH,
-    help="SQLite DB 파일 경로",
 )
 PARSER.add_argument("--postgres-host", default=None, help="PostgreSQL 호스트")
 PARSER.add_argument("--postgres-port", type=int, default=None, help="PostgreSQL 포트")
@@ -113,7 +115,7 @@ class Base(DeclarativeBase):
 
 
 class Product(Base):
-    __tablename__ = "products"
+    __tablename__ = "rag_pesticide_products"
 
     product_id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=False
@@ -158,9 +160,11 @@ class Product(Base):
 
 
 class Crop(Base):
-    __tablename__ = "crops"
+    __tablename__ = "rag_pesticide_crops"
     __table_args__ = (
-        UniqueConstraint("crop_name_normalized", name="uq_crops_crop_name_normalized"),
+        UniqueConstraint(
+            "crop_name_normalized", name="uq_rag_pesticide_crops_crop_name_normalized"
+        ),
     )
 
     crop_id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -177,10 +181,12 @@ class Crop(Base):
 
 
 class Target(Base):
-    __tablename__ = "targets"
+    __tablename__ = "rag_pesticide_targets"
     __table_args__ = (
         UniqueConstraint(
-            "target_name_normalized", "target_kind", name="uq_targets_normalized_kind"
+            "target_name_normalized",
+            "target_kind",
+            name="uq_rag_pesticide_targets_normalized_kind",
         ),
     )
 
@@ -199,22 +205,25 @@ class Target(Base):
 
 
 class ProductApplication(Base):
-    __tablename__ = "product_applications"
+    __tablename__ = "rag_pesticide_product_applications"
     __table_args__ = (
         UniqueConstraint(
-            "product_id", "crop_id", "target_id", name="uq_product_applications_triplet"
+            "product_id",
+            "crop_id",
+            "target_id",
+            name="uq_rag_pesticide_product_applications_triplet",
         ),
     )
 
     application_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     product_id: Mapped[int] = mapped_column(
-        ForeignKey("products.product_id"), nullable=False, index=True
+        ForeignKey("rag_pesticide_products.product_id"), nullable=False, index=True
     )
     crop_id: Mapped[int] = mapped_column(
-        ForeignKey("crops.crop_id"), nullable=False, index=True
+        ForeignKey("rag_pesticide_crops.crop_id"), nullable=False, index=True
     )
     target_id: Mapped[int] = mapped_column(
-        ForeignKey("targets.target_id"), nullable=False, index=True
+        ForeignKey("rag_pesticide_targets.target_id"), nullable=False, index=True
     )
     application_method: Mapped[str | None] = mapped_column(Text, nullable=True)
     application_timing: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -241,14 +250,16 @@ class ProductApplication(Base):
 
 
 class RagDocument(Base):
-    __tablename__ = "rag_documents"
+    __tablename__ = "rag_pesticide_documents"
     __table_args__ = (
-        UniqueConstraint("application_id", name="uq_rag_documents_application_id"),
+        UniqueConstraint(
+            "application_id", name="uq_rag_pesticide_documents_application_id"
+        ),
     )
 
     document_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     application_id: Mapped[int] = mapped_column(
-        ForeignKey("product_applications.application_id"),
+        ForeignKey("rag_pesticide_product_applications.application_id"),
         nullable=False,
         index=True,
     )
@@ -310,6 +321,16 @@ class Stats:
     rag_documents_written: int = 0
 
 
+AppKey = tuple[int, str, str, str]
+
+
+@dataclass
+class UpsertCaches:
+    products: dict[int, Product]
+    applications: dict[AppKey, ProductApplication]
+    documents: dict[AppKey, RagDocument]
+
+
 def parse_args() -> argparse.Namespace:
     return PARSER.parse_args()
 
@@ -320,9 +341,7 @@ def utcnow_iso() -> str:
 
 def log(message: str) -> None:
     safe_message = message.replace("\r", " ").replace("\n", " ")
-    print(
-        f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {safe_message}", flush=True
-    )
+    info(f"[{datetime.now().strftime('%H:%M:%S')}] {safe_message}")
 
 
 def clean_text(value: Any) -> str | None:
@@ -598,11 +617,38 @@ def build_application_payload(
     }
 
 
-def upsert_product(session: Session, candidate: Product, now: str) -> Product:
-    existing = session.get(Product, candidate.product_id)
-    if existing is None:
+def make_app_key(product: Product, crop: Crop, target: Target) -> AppKey:
+    return (
+        product.product_id,
+        crop.crop_name_normalized,
+        target.target_name_normalized,
+        target.target_kind,
+    )
+
+
+def upsert_product(
+    session: Session,
+    caches: UpsertCaches,
+    candidate: Product,
+    now: str,
+    append_mode: bool,
+) -> Product:
+    cached = caches.products.get(candidate.product_id)
+    if cached is not None:
+        existing = cached
+    elif not append_mode:
         session.add(candidate)
-        session.flush()
+        caches.products[candidate.product_id] = candidate
+        return candidate
+    else:
+        existing = session.get(Product, candidate.product_id)
+        if existing is None:
+            session.add(candidate)
+            caches.products[candidate.product_id] = candidate
+            return candidate
+        caches.products[candidate.product_id] = existing
+
+    if existing is None:
         return candidate
 
     existing.product_code = candidate.product_code
@@ -629,26 +675,37 @@ def upsert_product(session: Session, candidate: Product, now: str) -> Product:
     existing.source_file_name = candidate.source_file_name
     existing.source_row_index = candidate.source_row_index
     existing.updated_at = now
-    session.flush()
     return existing
 
 
 def upsert_application(
     session: Session,
+    caches: UpsertCaches,
     *,
     product: Product,
     crop: Crop,
     target: Target,
     application_payload: dict[str, Any],
     now: str,
+    append_mode: bool,
 ) -> ProductApplication:
-    existing = session.scalar(
-        select(ProductApplication).where(
-            ProductApplication.product_id == product.product_id,
-            ProductApplication.crop_id == crop.crop_id,
-            ProductApplication.target_id == target.target_id,
+    key = make_app_key(product, crop, target)
+    cached = caches.applications.get(key)
+    if cached is not None:
+        existing = cached
+    elif append_mode and crop.crop_id is not None and target.target_id is not None:
+        existing = session.scalar(
+            select(ProductApplication).where(
+                ProductApplication.product_id == product.product_id,
+                ProductApplication.crop_id == crop.crop_id,
+                ProductApplication.target_id == target.target_id,
+            )
         )
-    )
+        if existing is not None:
+            caches.applications[key] = existing
+    else:
+        existing = None
+
     if existing is None:
         application = ProductApplication(
             product=product,
@@ -671,7 +728,7 @@ def upsert_application(
             updated_at=now,
         )
         session.add(application)
-        session.flush()
+        caches.applications[key] = application
         return application
 
     existing.application_method = application_payload["application_method"]
@@ -688,12 +745,12 @@ def upsert_application(
     existing.source_file_name = application_payload["source_file_name"]
     existing.source_row_index = application_payload["source_row_index"]
     existing.updated_at = now
-    session.flush()
     return existing
 
 
 def upsert_rag_document(
     session: Session,
+    caches: UpsertCaches,
     *,
     application: ProductApplication,
     product: Product,
@@ -701,7 +758,9 @@ def upsert_rag_document(
     target: Target,
     application_payload: dict[str, Any],
     now: str,
+    append_mode: bool,
 ) -> RagDocument:
+    key = make_app_key(product, crop, target)
     search_text = build_search_text(
         product, crop.crop_name, target.target_name, application_payload
     )
@@ -712,11 +771,20 @@ def upsert_rag_document(
         target.target_kind,
         application_payload,
     )
-    existing = session.scalar(
-        select(RagDocument).where(
-            RagDocument.application_id == application.application_id
+    cached = caches.documents.get(key)
+    if cached is not None:
+        existing = cached
+    elif append_mode and application.application_id is not None:
+        existing = session.scalar(
+            select(RagDocument).where(
+                RagDocument.application_id == application.application_id
+            )
         )
-    )
+        if existing is not None:
+            caches.documents[key] = existing
+    else:
+        existing = None
+
     if existing is None:
         document = RagDocument(
             application=application,
@@ -753,7 +821,7 @@ def upsert_rag_document(
             updated_at=now,
         )
         session.add(document)
-        session.flush()
+        caches.documents[key] = document
         return document
 
     existing.crop_name = crop.crop_name
@@ -786,12 +854,7 @@ def upsert_rag_document(
     existing.search_text = search_text
     existing.render_text = render_text
     existing.updated_at = now
-    session.flush()
     return existing
-
-
-def ensure_parent_dir(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def load_backend_env(env_path: Path) -> None:
@@ -813,11 +876,13 @@ def normalize_db_url(url: str | None) -> str | None:
         return None
     normalized = url.strip()
     if normalized.startswith("postgres://"):
-        return normalized.replace("postgres://", "postgresql+psycopg://", 1)
+        return normalized.replace("postgres://", "postgresql+psycopg2://", 1)
     if normalized.startswith("postgresql+asyncpg://"):
-        return normalized.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+        return normalized.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    if normalized.startswith("postgresql+psycopg://"):
+        return normalized.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
     if normalized.startswith("postgresql://"):
-        return normalized.replace("postgresql://", "postgresql+psycopg://", 1)
+        return normalized.replace("postgresql://", "postgresql+psycopg2://", 1)
     return normalized
 
 
@@ -826,7 +891,7 @@ def build_engine(args: argparse.Namespace):
         db_url = normalize_db_url(args.db_url)
         if not db_url:
             raise RuntimeError("--db-url 값이 비어 있습니다.")
-        if db_url.startswith("postgresql+psycopg://"):
+        if db_url.startswith("postgresql+psycopg2://"):
             return create_engine(
                 db_url,
                 future=True,
@@ -834,12 +899,9 @@ def build_engine(args: argparse.Namespace):
                 connect_args={"connect_timeout": int(POSTGRES_PING_TIMEOUT_SECONDS)},
             )
         return create_engine(db_url, future=True)
-    if args.db_type == "sqlite":
-        ensure_parent_dir(args.sqlite_path)
-        return create_engine(f"sqlite:///{args.sqlite_path.as_posix()}", future=True)
     env_db_url = normalize_db_url(os.getenv("DATABASE_URL"))
     if env_db_url:
-        if env_db_url.startswith("postgresql+psycopg://"):
+        if env_db_url.startswith("postgresql+psycopg2://"):
             return create_engine(
                 env_db_url,
                 future=True,
@@ -848,7 +910,7 @@ def build_engine(args: argparse.Namespace):
             )
         return create_engine(env_db_url, future=True)
     url = URL.create(
-        drivername="postgresql+psycopg",
+        drivername="postgresql+psycopg2",
         username=first_non_empty(
             args.postgres_user, os.getenv("POSTGRES_USER"), DEFAULT_POSTGRES_USER
         ),
@@ -879,9 +941,6 @@ def build_engine(args: argparse.Namespace):
 
 
 def wait_for_postgres_server(engine: Any, max_retries: int) -> None:
-    if engine.url.get_backend_name() != "postgresql":
-        return
-
     host = engine.url.host or DEFAULT_POSTGRES_HOST
     port = int(engine.url.port or DEFAULT_POSTGRES_PORT)
     log(f"PostgreSQL 서버 연결 확인 시작: {host}:{port}")
@@ -911,23 +970,34 @@ def wait_for_postgres_server(engine: Any, max_retries: int) -> None:
 
 
 def rebuild_tables(engine: Any) -> None:
+    # 과거 무접두어 테이블이 남아 있으면 함께 정리해 이름 규칙을 일관되게 유지한다.
+    existing_tables = set(inspect(engine).get_table_names())
+    with engine.begin() as conn:
+        for table_name in LEGACY_TABLE_NAMES:
+            if table_name in existing_tables:
+                conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}" CASCADE')
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
 
 
 def get_or_create_crop(
-    session: Session, cache: dict[str, Crop], crop_name: str, now: str
+    session: Session,
+    cache: dict[str, Crop],
+    crop_name: str,
+    now: str,
+    append_mode: bool,
 ) -> Crop:
     normalized = normalize_keyword(crop_name)
     cached = cache.get(normalized)
     if cached is not None:
         return cached
-    existing = session.scalar(
-        select(Crop).where(Crop.crop_name_normalized == normalized)
-    )
-    if existing is not None:
-        cache[normalized] = existing
-        return existing
+    if append_mode:
+        existing = session.scalar(
+            select(Crop).where(Crop.crop_name_normalized == normalized)
+        )
+        if existing is not None:
+            cache[normalized] = existing
+            return existing
     crop = Crop(
         crop_name=crop_name,
         crop_name_normalized=normalized,
@@ -935,7 +1005,6 @@ def get_or_create_crop(
         updated_at=now,
     )
     session.add(crop)
-    session.flush()
     cache[normalized] = crop
     return crop
 
@@ -946,21 +1015,23 @@ def get_or_create_target(
     target_name: str,
     target_kind: str,
     now: str,
+    append_mode: bool,
 ) -> Target:
     normalized = normalize_keyword(target_name)
     cache_key = (normalized, target_kind)
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    existing = session.scalar(
-        select(Target).where(
-            Target.target_name_normalized == normalized,
-            Target.target_kind == target_kind,
+    if append_mode:
+        existing = session.scalar(
+            select(Target).where(
+                Target.target_name_normalized == normalized,
+                Target.target_kind == target_kind,
+            )
         )
-    )
-    if existing is not None:
-        cache[cache_key] = existing
-        return existing
+        if existing is not None:
+            cache[cache_key] = existing
+            return existing
     target = Target(
         target_name=target_name,
         target_name_normalized=normalized,
@@ -969,7 +1040,6 @@ def get_or_create_target(
         updated_at=now,
     )
     session.add(target)
-    session.flush()
     cache[cache_key] = target
     return target
 
@@ -987,11 +1057,12 @@ def iter_pairs(raw_row: dict[str, Any]) -> list[tuple[str, str, str]]:
 
 
 def populate_database(
-    session: Session, source_files: list[Path], log_every: int
+    session: Session, source_files: list[Path], log_every: int, append_mode: bool
 ) -> Stats:
     stats = Stats()
     crop_cache: dict[str, Crop] = {}
     target_cache: dict[tuple[str, str], Target] = {}
+    caches = UpsertCaches(products={}, applications={}, documents={})
 
     for source_file in source_files:
         log(f"파일 처리 시작: {source_file.name}")
@@ -1003,36 +1074,57 @@ def populate_database(
             stats.rows_seen += 1
             now = utcnow_iso()
             product_candidate = build_product(raw_row, source_file, row_index, now)
-            product = upsert_product(session, product_candidate, now)
+            product = upsert_product(
+                session,
+                caches,
+                product_candidate,
+                now,
+                append_mode=append_mode,
+            )
             stats.products_written += 1
 
             application_payload = build_application_payload(
                 raw_row, source_file, row_index
             )
             for crop_name, target_name, target_kind in iter_pairs(raw_row):
-                crop = get_or_create_crop(session, crop_cache, crop_name, now)
+                crop = get_or_create_crop(
+                    session,
+                    crop_cache,
+                    crop_name,
+                    now,
+                    append_mode=append_mode,
+                )
                 target = get_or_create_target(
-                    session, target_cache, target_name, target_kind, now
+                    session,
+                    target_cache,
+                    target_name,
+                    target_kind,
+                    now,
+                    append_mode=append_mode,
                 )
 
                 application = upsert_application(
                     session,
+                    caches,
                     product=product,
                     crop=crop,
                     target=target,
                     application_payload=application_payload,
                     now=now,
+                    append_mode=append_mode,
                 )
                 stats.applications_written += 1
 
                 upsert_rag_document(
                     session,
+                    caches,
                     application=application,
                     product=product,
                     crop=crop,
                     target=target,
                     application_payload=application_payload,
                     now=now,
+                    append_mode=append_mode,
                 )
                 stats.rag_documents_written += 1
 
@@ -1051,13 +1143,13 @@ def populate_database(
             f"누적 rag_documents={stats.rag_documents_written}"
         )
 
-    session.flush()
     stats.crops_written = len(crop_cache)
     stats.targets_written = len(target_cache)
     return stats
 
 
 def main() -> int:
+    set_log_prefix(LOG_PREFIX)
     args = parse_args()
     load_backend_env(args.backend_env_path)
     if args.log_every < 0:
@@ -1066,17 +1158,15 @@ def main() -> int:
         raise RuntimeError("--postgres-max-retries 는 1 이상이어야 합니다.")
     input_dir: Path = args.input_dir
     if not input_dir.exists() or not input_dir.is_dir():
-        raise RuntimeError(f"입력 디렉터리가 없습니다: {input_dir}")
+        error(f"json_raw 디렉터리가 없어 적재를 건너뜁니다: {input_dir}")
+        return 0
 
     source_files = collect_source_files(input_dir, args.glob)
     if not source_files:
-        raise RuntimeError(
-            f"{input_dir} 아래에서 {args.glob!r} 패턴에 맞는 파일을 찾지 못했습니다."
-        )
+        error(f"json_raw 파일이 없어 적재를 건너뜁니다: {input_dir}")
+        return 0
 
-    log(
-        f"전처리 시작: input_dir={input_dir.as_posix()}, files={len(source_files)}, db_type={args.db_type}"
-    )
+    log(f"전처리 시작: input_dir={input_dir.as_posix()}, files={len(source_files)}")
     engine = build_engine(args)
     wait_for_postgres_server(engine, max_retries=args.postgres_max_retries)
     if not args.append:
@@ -1087,13 +1177,13 @@ def main() -> int:
         Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        stats = populate_database(session, source_files, args.log_every)
+        stats = populate_database(
+            session, source_files, args.log_every, append_mode=args.append
+        )
         log("DB commit을 수행합니다.")
         session.commit()
 
-    if args.db_type == "sqlite" and not args.db_url:
-        destination = args.sqlite_path
-    elif args.db_type == "postgresql" and not args.db_url:
+    if not args.db_url:
         destination = normalize_db_url(os.getenv("DATABASE_URL")) or (
             f"{first_non_empty(args.postgres_host, os.getenv('POSTGRES_HOST'), DEFAULT_POSTGRES_HOST)}:"
             f"{int(first_non_empty(args.postgres_port, os.getenv('POSTGRES_PORT'), DEFAULT_POSTGRES_PORT))}/"
@@ -1117,4 +1207,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        error(str(exc))
+        raise

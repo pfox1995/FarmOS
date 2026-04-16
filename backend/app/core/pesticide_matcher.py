@@ -8,12 +8,12 @@ from app.models.pesticide import PesticideProduct
 
 def _pick_best(products: list[PesticideProduct], confidence: float) -> dict:
     """여러 매칭 결과 중 대표 1건 선택 (제품명이 짧은 것 우선)."""
-    p = min(products, key=lambda x: len(x.product_name))
+    p = min(products, key=lambda x: len(x.ingredient_or_formulation_name or ""))
     return {
-        "matched_name": p.product_name,
+        "matched_name": p.ingredient_or_formulation_name,
         "brand": p.brand_name,
-        "company": p.company,
-        "purpose": p.purpose,
+        "company": p.corporation_name,
+        "purpose": p.usage_purpose_name,
         "crop": p.crop_name,
         "confidence": confidence,
     }
@@ -71,12 +71,14 @@ async def _search(
             stmt = stmt.where(PesticideProduct.crop_name == crop_filter)
         if disease_filter:
             stmt = stmt.where(
-                PesticideProduct.disease_name.ilike(f"%{disease_filter}%")
+                PesticideProduct.target_name.ilike(f"%{disease_filter}%")
             )
         return stmt
 
     # 1순위: 제품명 정확 매칭
-    stmt = select(PesticideProduct).where(PesticideProduct.product_name == raw_name)
+    stmt = select(PesticideProduct).where(
+        PesticideProduct.ingredient_or_formulation_name == raw_name
+    )
     stmt = _apply_filters(stmt)
     result = await db.execute(stmt)
     products = result.scalars().all()
@@ -98,7 +100,7 @@ async def _search(
     # 3순위: 제품명 또는 브랜드명 부분 매칭
     stmt = select(PesticideProduct).where(
         or_(
-            PesticideProduct.product_name.ilike(f"%{raw_name}%"),
+            PesticideProduct.ingredient_or_formulation_name.ilike(f"%{raw_name}%"),
             PesticideProduct.brand_name.ilike(f"%{raw_name}%"),
         )
     )
@@ -116,12 +118,11 @@ async def _search(
     for token in tokens:
         stmt = select(PesticideProduct).where(
             or_(
-                PesticideProduct.product_name.ilike(f"%{token}%"),
+                PesticideProduct.ingredient_or_formulation_name.ilike(f"%{token}%"),
                 PesticideProduct.brand_name.ilike(f"%{token}%"),
             )
         )
-        if crop_cond := _crop_condition():
-            stmt = stmt.where(crop_cond)
+        stmt = _apply_filters(stmt)
         result = await db.execute(stmt)
         products = result.scalars().all()
         if products:
@@ -132,15 +133,17 @@ async def _search(
     # 예: "오스피란" → "모스피란" 같이 한 글자만 다른 케이스
     from rapidfuzz import fuzz, process
 
-    stmt = select(PesticideProduct.product_name, PesticideProduct.brand_name)
+    stmt = select(
+        PesticideProduct.ingredient_or_formulation_name, PesticideProduct.brand_name
+    )
     stmt = _apply_filters(stmt)
     result = await db.execute(stmt)
     rows = result.all()
     if rows:
         candidates: set[str] = set()
-        for product_name, brand_name in rows:
-            if product_name:
-                candidates.add(product_name)
+        for ingredient_name, brand_name in rows:
+            if ingredient_name:
+                candidates.add(ingredient_name)
             if brand_name:
                 candidates.add(brand_name)
 
@@ -154,7 +157,7 @@ async def _search(
             matched_name = best[0]
             stmt2 = select(PesticideProduct).where(
                 or_(
-                    PesticideProduct.product_name == matched_name,
+                    PesticideProduct.ingredient_or_formulation_name == matched_name,
                     PesticideProduct.brand_name == matched_name,
                 )
             )

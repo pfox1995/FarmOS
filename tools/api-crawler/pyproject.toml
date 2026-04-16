@@ -1,7 +1,7 @@
 [project]
 name = "api-crawler"
 version = "0.1.0"
-description = "FarmOS pesticide API crawler and preprocessor"
+description = "FarmOS pesticide API crawler"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

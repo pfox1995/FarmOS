@@ -2,7 +2,9 @@
 import logging
 from typing import Optional
 
-from ai import CHROMA_DB_PATH
+from app.core.config import settings
+from app.paths import CHROMA_DB_PATH
+from ai.embeddings import get_embedding_function
 
 logger = logging.getLogger(__name__)
 
@@ -10,8 +12,7 @@ logger = logging.getLogger(__name__)
 class RAGService:
     """RAG service with ChromaDB for document retrieval and LLM for generation."""
 
-    def __init__(self, llm_client, persist_directory: str | None = None):
-        self.llm_client = llm_client
+    def __init__(self, persist_directory: str | None = None):
         self.chroma_client = None
         self._ef = None
         if persist_directory is None:
@@ -22,12 +23,9 @@ class RAGService:
         """Initialize ChromaDB client. Gracefully handles unavailability."""
         try:
             import chromadb
-            from chromadb.utils import embedding_functions
             self.chroma_client = chromadb.PersistentClient(path=persist_directory)
-            self._ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name="jhgan/ko-sroberta-multitask"
-            )
-            logger.info("ChromaDB initialized successfully.")
+            self._ef = get_embedding_function()
+            logger.info("ChromaDB initialized (provider=%s).", settings.embed_provider)
         except Exception as e:
             logger.warning(f"ChromaDB initialization failed: {e}. RAG will use fallback.")
             self.chroma_client = None
@@ -48,34 +46,80 @@ class RAGService:
             )
             return None
 
-    async def query(self, question: str, collection: str = "faq", intent: str | None = None, top_k: int = 3) -> str:
-        """Query documents and generate an answer using RAG."""
+    def retrieve(
+        self,
+        question: str,
+        collection: str,
+        top_k: int = 3,
+        distance_threshold: float = 0.5,
+        where: dict | None = None,
+    ) -> list[str]:
+        """ChromaDB에서 관련 문서를 검색하고 거리 필터링 후 반환.
+
+        Args:
+            question: 검색 질문
+            collection: 컬렉션 이름
+            top_k: 최대 반환 수
+            distance_threshold: 이 값 미만의 거리(유사도)인 문서만 반환
+            where: 메타데이터 필터 (선택)
+
+        Returns:
+            필터링된 문서 텍스트 리스트. 관련 문서 없으면 빈 리스트.
+        """
         col = self._get_collection(collection)
         if col is None:
-            return await self._fallback_answer(question)
+            return []
 
         try:
-            # faq 컬렉션은 intent로 필터링해서 관련 없는 FAQ 배제
-            where = {"intent": intent} if (collection == "faq" and intent) else None
-            results = col.query(query_texts=[question], n_results=top_k, where=where)
-            documents = results.get("documents", [[]])[0]
-            if not documents:
-                return await self._fallback_answer(question)
+            kwargs: dict = {
+                "query_texts": [question],
+                "n_results": top_k,
+                "include": ["documents", "distances"],
+            }
+            if where:
+                kwargs["where"] = where
 
-            context = "\n".join(documents)
-            prompt = (
-                f"다음 참고 자료를 바탕으로 질문에 답변하세요.\n\n"
-                f"참고 자료:\n{context}\n\n"
-                f"질문: {question}\n\n"
-                f"답변:"
-            )
-            return await self.llm_client.generate(
-                prompt,
-                system="당신은 농산물 쇼핑몰 고객 지원 전문가입니다. 참고 자료를 기반으로 정확하게 답변하세요. 반드시 한국어로만 답변하세요.",
-            )
+            results = col.query(**kwargs)
+            documents = results.get("documents", [[]])[0]
+            distances = results.get("distances", [[]])[0]
+
+            filtered = [
+                doc for doc, dist in zip(documents, distances)
+                if dist < distance_threshold
+            ]
+            return filtered
+
         except Exception as e:
-            logger.warning(f"RAG query failed: {e}")
-            return await self._fallback_answer(question)
+            logger.warning(f"RAG retrieve failed (collection={collection}): {e}")
+            return []
+
+    def retrieve_multiple(
+        self,
+        question: str,
+        collections: list[str],
+        top_k_per: int = 2,
+        distance_threshold: float = 0.5,
+    ) -> list[str]:
+        """여러 컬렉션에서 검색하여 결과를 합산.
+
+        Args:
+            question: 검색 질문
+            collections: 검색할 컬렉션 이름 목록
+            top_k_per: 컬렉션당 최대 반환 수
+            distance_threshold: 거리 필터
+
+        Returns:
+            모든 컬렉션에서 수집된 관련 문서 리스트 (중복 제거)
+        """
+        seen = set()
+        all_docs = []
+        for col_name in collections:
+            docs = self.retrieve(question, col_name, top_k_per, distance_threshold)
+            for doc in docs:
+                if doc not in seen:
+                    seen.add(doc)
+                    all_docs.append(doc)
+        return all_docs
 
     def add_documents(self, collection: str, docs: list[dict]) -> int:
         """Add documents to a ChromaDB collection.
@@ -96,29 +140,3 @@ class RAGService:
         except Exception as e:
             logger.warning(f"Failed to add documents: {e}")
             return 0
-
-    async def _fallback_answer(self, question: str) -> str:
-        """Provide a fallback answer when RAG is unavailable."""
-        question_lower = question.lower()
-
-        if any(kw in question_lower for kw in ["보관", "저장", "냉장", "냉동"]):
-            return (
-                "일반적으로 신선 농산물은 냉장(0-5도) 보관을 권장합니다. "
-                "과일류는 신문지로 감싸 냉장 보관하면 신선도를 오래 유지할 수 있습니다. "
-                "자세한 보관법은 상품 상세 페이지를 참고해 주세요."
-            )
-
-        if any(kw in question_lower for kw in ["제철", "시즌", "계절"]):
-            return (
-                "봄: 딸기, 냉이, 봄동 / 여름: 수박, 참외, 토마토 / "
-                "가을: 사과, 배, 감 / 겨울: 감귤, 시금치, 무. "
-                "제철 농산물이 가장 맛있고 영양가가 높습니다."
-            )
-
-        if any(kw in question_lower for kw in ["교환", "환불", "반품"]):
-            return (
-                "신선식품 특성상 단순 변심으로 인한 교환/환불은 어렵습니다. "
-                "상품 하자 시 수령 후 24시간 이내에 사진과 함께 고객센터로 문의해 주세요."
-            )
-
-        return "죄송합니다. 해당 질문에 대한 정보를 찾을 수 없습니다. 고객센터(1588-0000)로 문의해 주세요."

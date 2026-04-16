@@ -427,7 +427,7 @@ shopping_mall/
 - [ ] CUDA 드라이버 + PyTorch 설치
 - [ ] vLLM 또는 Ollama 설치
 - [ ] LLM 모델 다운로드 (Llama 3.1 8B 또는 Gemma 2 9B)
-- [ ] `uv sync` + `python db/seed.py` 실행
+- [ ] `uv sync` + `python bootstrap/shoppingmall.py --mode init --skip-sync` 실행
 - [ ] 기존 쇼핑몰 정상 동작 확인 후 백오피스 개발 시작
 
 ---
@@ -448,3 +448,4 @@ shopping_mall/
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
 | 0.1 | 2026-04-02 | Initial draft | clover0309 |
+
