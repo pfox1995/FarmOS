@@ -90,9 +90,15 @@ def run_command(
                 text=True,
                 stdout=handle,
                 stderr=subprocess.STDOUT,
+                shell=os.name == "nt",
             )
     else:
-        result = subprocess.run(resolved, cwd=str(cwd) if cwd else None, text=True)
+        result = subprocess.run(
+            resolved,
+            cwd=str(cwd) if cwd else None,
+            text=True,
+            shell=os.name == "nt",
+        )
     if check and result.returncode != 0:
         raise BootstrapError(
             f"명령 실행 실패({result.returncode}): {' '.join(command)}"
@@ -232,6 +238,7 @@ def start_service(
         stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
         creationflags=creationflags,
+        shell=os.name == "nt",
     )
     info(f"시작됨: {name} (PID={proc.pid})")
     return ServiceProcess(

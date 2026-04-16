@@ -238,7 +238,7 @@ async def fetch_pesticide(state: DiagnosisState) -> dict:
     try:
         async with async_session() as db:
             query = select(PesticideProduct).where(
-                PesticideProduct.disease_name.like(f"%{pest}%"),
+                PesticideProduct.target_name.like(f"%{pest}%"),
                 PesticideProduct.crop_name.like(f"%{crop}%")
             ).limit(50)
             result = await db.execute(query)
@@ -248,7 +248,7 @@ async def fetch_pesticide(state: DiagnosisState) -> dict:
                 # 메모.txt 템플릿에 맞는 grouped_results 형태의 JSON 생성
                 grouped = {}
                 for p in products:
-                    ing_name = p.product_name or "성분정보없음"
+                    ing_name = p.ingredient_or_formulation_name or "성분정보없음"
                     if ing_name not in grouped:
                         if len(grouped) >= 3: # 최대 3개의 성분만 반환
                             continue
@@ -268,11 +268,11 @@ async def fetch_pesticide(state: DiagnosisState) -> dict:
                         
                     grouped[ing_name]["products"].append({
                         "brand_name": p.brand_name or "상표명없음",
-                        "corporation_name": p.company or "제조사없음",
-                        "application_method": p.usage_method or "정보없음",
-                        "application_timing": p.usage_period or "정보없음",
-                        "dilution_text": p.dilution or "해당 없음 (원액 또는 토양 혼화)",
-                        "max_use_count_text": p.usage_count or "정보없음"
+                        "corporation_name": p.corporation_name or "제조사없음",
+                        "application_method": p.application_method or "정보없음",
+                        "application_timing": p.application_timing or "정보없음",
+                        "dilution_text": p.dilution_text or "해당 없음 (원액 또는 토양 혼화)",
+                        "max_use_count_text": p.max_use_count_text or "정보없음"
                     })
                 
                 grouped_list = list(grouped.values())
@@ -442,6 +442,12 @@ async def generate_diagnosis(state: DiagnosisState) -> dict:
         })
         # Remove any unfilled brackets if left behind
         response = re.sub(r'\[\[.*?\]\]', '', raw_response)
+        
+        # 'grouped_results' 같은 JSON 잔재가 환각으로 출력되었을 경우 잘라내기
+        if "## ⚠️ 공지" in response:
+            parts = response.split("## ⚠️ 공지")
+            response = parts[0] + "## ⚠️ 공지" + parts[1].split("\n")[0]
+        
     except Exception as e:
         import traceback
         traceback.print_exc()

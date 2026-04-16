@@ -16,13 +16,12 @@ function MarkdownRenderer({ content }: { content: string }) {
   const parseMarkdown = (text: string): string => {
     // 텍스트 전처리: LLM이 평문으로 응답할 경우를 대비해 특정 패턴에 마크다운 기호 주입
     let processedText = text
-      .replace(/^⚠️ 공지/gm, '## ⚠️ 공지')
-      .replace(/^현재 날씨:/gm, '- 현재 날씨:')
-      .replace(/^조언:/gm, '- 조언:')
-      .replace(/^성분\/제형:/gm, '- 성분/제형:')
-      .replace(/^(사용 방법:|사용 시기:|희석 배수:|사용 횟수:)/gm, '    - $1')
-      // 이미 '- '가 붙어있는지 확인하고, 없다면 붙여줌
-      .replace(/^([^\n\-#]+ \[(?:[^\]]+)\])$/gm, '  - $1')
+      .replace(/^\s*(##\s*)?⚠️ 공지/gm, '## ⚠️ 공지')
+      .replace(/^\s*(-\s*)?현재 날씨:/gm, '- 현재 날씨:')
+      .replace(/^\s*(-\s*)?조언:/gm, '- 조언:')
+      .replace(/^\s*(-\s*)?성분\/제형:/gm, '- 성분/제형:')
+      .replace(/^\s*(-\s*)?(사용 방법:|사용 시기:|희석 배수:|사용 횟수:)/gm, '    - $2')
+      .replace(/^\s*(-\s*)?([^\n\-#]+ \[(?:[^\]]+)\])$/gm, '  - $2')
       .replace(/^-\s+-\s+/gm, '  - '); // 혹시나 '- - ' 같이 두 번 들어간 경우 방지
 
     const lines = processedText.split('\n');
