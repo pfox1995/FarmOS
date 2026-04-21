@@ -115,17 +115,42 @@ function LockButton({ locked, onToggle }: { locked: boolean; onToggle: () => voi
   );
 }
 
+// Design Ref: §6.1 — VentilationCard ON/OFF 마스터 스위치 + ref 기반 복원
+type LastKnownRef = React.MutableRefObject<Partial<{
+  ventilation: { window_open_pct: number; fan_speed: number };
+  shading: { shade_pct: number; insulation_pct: number };
+}>>;
+
 function VentilationCard({
   state,
+  lastKnownRef,
   onSlider,
   onButton,
+  onCommand,
   onUnlock,
 }: {
   state: ManualControlState['ventilation'];
+  lastKnownRef: LastKnownRef;
   onSlider: (action: Record<string, unknown>) => void;
   onButton: (action: Record<string, unknown>) => void;
+  onCommand: (action: Record<string, unknown>) => void;
   onUnlock: () => void;
 }) {
+  const handleMasterToggle = () => {
+    if (state.on) {
+      // OFF: 현재값을 ref에 저장 후 슬라이더 모두 0
+      lastKnownRef.current.ventilation = {
+        window_open_pct: state.window_open_pct,
+        fan_speed: state.fan_speed,
+      };
+      onCommand({ window_open_pct: 0, fan_speed: 0, on: false, led_on: false });
+    } else {
+      // ON: ref 복원 또는 프리셋
+      const vals = lastKnownRef.current.ventilation ?? { window_open_pct: 100, fan_speed: 1500 };
+      onCommand({ ...vals, on: true, led_on: true });
+    }
+  };
+
   return (
     <div className={`bg-white rounded-xl border p-4 space-y-3 ${state.locked ? 'ring-1 ring-orange-300' : ''}`}>
       <div className="flex items-center gap-2">
@@ -136,6 +161,20 @@ function VentilationCard({
         <LockButton locked={state.locked} onToggle={onUnlock} />
       </div>
 
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-gray-600">상태</span>
+        <button
+          onClick={handleMasterToggle}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            state.on
+              ? 'bg-blue-500 text-white'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+          }`}
+        >
+          {state.on ? 'ON' : 'OFF'}
+        </button>
+      </div>
+
       <div>
         <div className="flex justify-between text-sm text-gray-600 mb-1">
           <span>창문 개폐율</span>
@@ -143,8 +182,9 @@ function VentilationCard({
         </div>
         <ControlSlider
           value={state.window_open_pct}
-          onChange={(v) => onSlider({ window_open_pct: v })}
+          onChange={(v) => onSlider({ window_open_pct: v, on: v > 0 || state.fan_speed > 0 })}
           color="blue-500"
+          disabled={!state.on}
         />
       </div>
 
@@ -156,12 +196,13 @@ function VentilationCard({
         {[0, 500, 1000, 1500, 3000].map((rpm) => (
           <button
             key={rpm}
-            onClick={() => onButton({ fan_speed: rpm })}
+            onClick={() => onButton({ fan_speed: rpm, on: rpm > 0 || state.window_open_pct > 0 })}
             className={`flex-1 text-xs py-1 rounded ${
               state.fan_speed === rpm
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+            } ${!state.on && rpm > 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={!state.on && rpm > 0}
           >
             {rpm === 0 ? 'OFF' : rpm}
           </button>
@@ -261,15 +302,33 @@ function LightingCard({
   );
 }
 
+// Design Ref: §6.2 — ShadingCard ON/OFF 마스터 스위치 + ref 기반 복원
 function ShadingCard({
   state,
-  onCommand,
+  lastKnownRef,
+  onSlider,
+  onMaster,
   onUnlock,
 }: {
   state: ManualControlState['shading'];
-  onCommand: (action: Record<string, unknown>) => void;
+  lastKnownRef: LastKnownRef;
+  onSlider: (action: Record<string, unknown>) => void;
+  onMaster: (action: Record<string, unknown>) => void;
   onUnlock: () => void;
 }) {
+  const handleMasterToggle = () => {
+    if (state.on) {
+      lastKnownRef.current.shading = {
+        shade_pct: state.shade_pct,
+        insulation_pct: state.insulation_pct,
+      };
+      onMaster({ shade_pct: 0, insulation_pct: 0, on: false, led_on: false });
+    } else {
+      const vals = lastKnownRef.current.shading ?? { shade_pct: 50, insulation_pct: 0 };
+      onMaster({ ...vals, on: true, led_on: true });
+    }
+  };
+
   return (
     <div className={`bg-white rounded-xl border p-4 space-y-3 ${state.locked ? 'ring-1 ring-orange-300' : ''}`}>
       <div className="flex items-center gap-2">
@@ -280,6 +339,20 @@ function ShadingCard({
         <LockButton locked={state.locked} onToggle={onUnlock} />
       </div>
 
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-gray-600">상태</span>
+        <button
+          onClick={handleMasterToggle}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            state.on
+              ? 'bg-emerald-500 text-white'
+              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+          }`}
+        >
+          {state.on ? 'ON' : 'OFF'}
+        </button>
+      </div>
+
       <div>
         <div className="flex justify-between text-sm text-gray-600 mb-1">
           <span>차광막</span>
@@ -287,8 +360,9 @@ function ShadingCard({
         </div>
         <ControlSlider
           value={state.shade_pct}
-          onChange={(v) => onCommand({ shade_pct: v })}
+          onChange={(v) => onSlider({ shade_pct: v, on: v > 0 || state.insulation_pct > 0 })}
           color="emerald-500"
+          disabled={!state.on}
         />
       </div>
 
@@ -299,8 +373,9 @@ function ShadingCard({
         </div>
         <ControlSlider
           value={state.insulation_pct}
-          onChange={(v) => onCommand({ insulation_pct: v })}
+          onChange={(v) => onSlider({ insulation_pct: v, on: v > 0 || state.shade_pct > 0 })}
           color="orange-500"
+          disabled={!state.on}
         />
       </div>
     </div>
@@ -318,6 +393,7 @@ export default function ManualControlPanel() {
     simulateButton,
     unlockControl,
     handleControlEvent,
+    lastKnownValuesRef, // Design Ref: §6.3 — 마스터 스위치 복원값 공유 ref
   } = useManualControl();
 
   // SSE control 이벤트 구독
@@ -372,8 +448,10 @@ export default function ManualControlPanel() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <VentilationCard
           state={controlState.ventilation}
+          lastKnownRef={lastKnownValuesRef}
           onSlider={(action) => sendCommand('ventilation', action)}
           onButton={(action) => sendCommandImmediate('ventilation', action)}
+          onCommand={(action) => sendCommandImmediate('ventilation', action)}
           onUnlock={() => unlockControl('ventilation')}
         />
         <IrrigationCard
@@ -388,7 +466,9 @@ export default function ManualControlPanel() {
         />
         <ShadingCard
           state={controlState.shading}
-          onCommand={(action) => sendCommand('shading', action)}
+          lastKnownRef={lastKnownValuesRef}
+          onSlider={(action) => sendCommand('shading', action)}
+          onMaster={(action) => sendCommandImmediate('shading', action)}
           onUnlock={() => unlockControl('shading')}
         />
       </div>

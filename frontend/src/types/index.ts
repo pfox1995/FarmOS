@@ -423,6 +423,7 @@ export interface ControlItemState {
 export interface VentilationState extends ControlItemState {
   window_open_pct: number;
   fan_speed: number;
+  on: boolean; // Design Ref: §3.1 — 마스터 스위치 (ESP8266 active와 별개)
 }
 
 export interface IrrigationControlState extends ControlItemState {
@@ -440,6 +441,7 @@ export interface LightingState extends ControlItemState {
 export interface ShadingState extends ControlItemState {
   shade_pct: number;
   insulation_pct: number;
+  on: boolean; // Design Ref: §3.1 — 마스터 스위치
 }
 
 export interface ManualControlState {

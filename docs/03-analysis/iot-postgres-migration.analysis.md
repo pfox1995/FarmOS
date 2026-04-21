@@ -1,5 +1,9 @@
 # IoT 인메모리 → PostgreSQL 마이그레이션 Analysis (Check)
 
+> ⚠️ **DEPRECATED (2026-04-21)** — 이 분석 대상이었던 FarmOS 로컬 `iot_sensor_readings` / `iot_sensor_alerts` / `iot_irrigation_events` 테이블과 `/api/v1/sensors*`, `/api/v1/irrigation/*` 엔드포인트는 **제거되었습니다.**
+> IoT 센서·알림·관수 데이터의 SSoT는 `iot_relay_server`(N100)의 `iotdb` 로 일원화되었고, FarmOS 로컬 DB는 AI 판단(`ai_agent_decisions` 외 2개)만 Bridge로 미러링합니다.
+> 본 문서는 당시 이관 분석 기록으로 보존합니다. 최신 구조는 `docs/iot-relay-server-plan.md` 참조.
+
 | 항목 | 값 |
 |------|-----|
 | Feature | iot-postgres-migration |

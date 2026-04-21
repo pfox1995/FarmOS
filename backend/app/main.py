@@ -11,13 +11,11 @@ from app.api import (
     ai_agent,
     auth,
     health,
-    irrigation,
     journal,
     knowledge,
     market,
     pesticide,
     review_analysis,
-    sensors,
     diagnosis,
 )
 from app.core.config import settings
@@ -27,11 +25,6 @@ from app.models.user import User  # noqa: F401 — Base.metadata 등록용
 from app.models.review_analysis import ReviewAnalysis, ReviewSentiment  # noqa: F401
 from app.models.diagnosis import DiagnosisHistory  # noqa: F401
 from app.models.journal import JournalEntry  # noqa: F401
-from app.models.iot import (  # noqa: F401
-    IotSensorReading,
-    IotIrrigationEvent,
-    IotSensorAlert,
-)
 from app.models.ai_agent import (  # noqa: F401 — Base.metadata 등록용 (agent-action-history)
     AiAgentDecision,
     AiAgentActivityDaily,
@@ -121,8 +114,6 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(health.router, prefix=settings.API_V1_PREFIX)
-app.include_router(sensors.router, prefix=settings.API_V1_PREFIX)
-app.include_router(irrigation.router, prefix=settings.API_V1_PREFIX)
 app.include_router(journal.router, prefix=settings.API_V1_PREFIX)
 app.include_router(knowledge.router, prefix=settings.API_V1_PREFIX)
 app.include_router(pesticide.router, prefix=settings.API_V1_PREFIX)

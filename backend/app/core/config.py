@@ -26,9 +26,6 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET_KEY: str = ""
 
-    # IoT 디바이스 API Key (ESP8266 인증용)
-    IOT_API_KEY: str = "farmos-iot-default-key"
-
     # KMA (기상청 API)
     KMA_ENCODING_KEY: str = ""
     KMA_DECODING_KEY: str = ""
@@ -36,10 +33,6 @@ class Settings(BaseSettings):
     # KAMIS (농산물유통정보 API)
     KAMIS_API_KEY: str = ""
     KAMIS_CERT_ID: str = ""
-
-    # Sensor thresholds
-    SOIL_MOISTURE_LOW: float = 55.0
-    SOIL_MOISTURE_HIGH: float = 70.0
 
     # OpenRouter (LLM API)
     OPENROUTER_API_KEY: str = ""

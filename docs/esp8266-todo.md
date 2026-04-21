@@ -1,6 +1,10 @@
 # ESP8266 IoT 연동 작업 목록 (2026-04-02)
 
-## 현재 상태
+> ⚠️ **DEPRECATED (2026-04-21)** — 이 문서의 `localhost:8000/api/v1/sensors*` curl 예시는 **현재 아키텍처에서 유효하지 않습니다.**
+> ESP8266은 N100 서버의 IoT Relay(`http://iot.lilpa.moe/api/v1/sensors`)로 직접 POST하며, FarmOS 백엔드의 `iot_*` 레거시 테이블/엔드포인트는 제거되었습니다.
+> 현 구조는 `docs/iot-relay-server-plan.md` 참조. 아래 내용은 Relay 도입 이전의 이력으로만 남겨둡니다.
+
+## 현재 상태 (legacy)
 
 - 백엔드 API 준비 완료 (`POST /api/v1/sensors`)
 - 프론트엔드 3초 폴링 연동 완료 (`useSensorData` 훅)

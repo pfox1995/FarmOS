@@ -14,6 +14,11 @@ export function useManualControl() {
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // 수동 조작 시각 기록 — AI rule SSE 방어용
   const manualTimestamps = useRef<Record<string, number>>({});
+  // Design Ref: §5.1 — ON/OFF 마스터 스위치용 이전 슬라이더 값 저장 (세션 내)
+  const lastKnownValuesRef = useRef<Partial<{
+    ventilation: { window_open_pct: number; fan_speed: number };
+    shading: { shade_pct: number; insulation_pct: number };
+  }>>({});
 
   // 초기 로드: GET /control/state
   const fetchState = useCallback(async () => {
@@ -21,7 +26,19 @@ export function useManualControl() {
       const res = await fetch(`${API_BASE}/control/state`, { credentials: 'omit' });
       if (res.ok) {
         const data = await res.json();
-        setControlState(data);
+        // Design Ref: §5.4 — 서버가 on 필드 미반환 시 led_on로 fallback
+        const normalized = {
+          ...data,
+          ventilation: {
+            ...data.ventilation,
+            on: data.ventilation?.on ?? data.ventilation?.led_on ?? false,
+          },
+          shading: {
+            ...data.shading,
+            on: data.shading?.on ?? data.shading?.led_on ?? false,
+          },
+        };
+        setControlState(normalized);
       }
     } catch {
       // 연결 실패 시 무시
@@ -117,7 +134,18 @@ export function useManualControl() {
     let toggleState: Record<string, unknown>;
     switch (controlType) {
       case 'ventilation':
-        toggleState = { window_open_pct: newActive ? 100 : 0, fan_speed: newActive ? 1500 : 0 };
+        // Design Ref: §5.2 — 시뮬 OFF 시 현재값 저장 → 수동 ON 토글 시 복원 가능
+        if (!newActive) {
+          lastKnownValuesRef.current.ventilation = {
+            window_open_pct: current.window_open_pct,
+            fan_speed: current.fan_speed,
+          };
+        }
+        toggleState = {
+          window_open_pct: newActive ? 100 : 0,
+          fan_speed: newActive ? 1500 : 0,
+          on: newActive,
+        };
         break;
       case 'irrigation':
         toggleState = { valve_open: newActive };
@@ -126,7 +154,18 @@ export function useManualControl() {
         toggleState = { on: newActive, brightness_pct: newActive ? 60 : 0 };
         break;
       case 'shading':
-        toggleState = { shade_pct: newActive ? 50 : 0, insulation_pct: 0 };
+        // Design Ref: §5.2 — 시뮬 OFF 시 현재값 저장
+        if (!newActive) {
+          lastKnownValuesRef.current.shading = {
+            shade_pct: current.shade_pct,
+            insulation_pct: current.insulation_pct,
+          };
+        }
+        toggleState = {
+          shade_pct: newActive ? 50 : 0,
+          insulation_pct: 0,
+          on: newActive,
+        };
         break;
     }
 
@@ -235,5 +274,6 @@ export function useManualControl() {
     unlockControl,
     handleControlEvent,
     refetch: fetchState,
+    lastKnownValuesRef, // Design Ref: §5.3 — 마스터 스위치 복원값 공유
   };
 }

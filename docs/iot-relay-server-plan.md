@@ -1,6 +1,10 @@
 # IoT 중계 서버 구축 계획 (N100 서버)
 
 > **업데이트 이력**
+> - 2026-04-21: FarmOS 로컬 DB의 레거시 IoT 테이블(`iot_sensor_readings` / `iot_sensor_alerts` / `iot_irrigation_events`)과
+>   관련 엔드포인트(`/api/v1/sensors*`, `/api/v1/irrigation/*`) **완전 제거**. IoT 센서·알림·관수 데이터의
+>   SSoT는 이제 Relay 전용 `iotdb` 단일 저장소이며, FarmOS DB는 AI 판단 미러(`ai_agent_decisions` 외 2개)만 보관한다.
+>   제거 마이그레이션: `backend/scripts/drop_iot_legacy_tables.sql`. Relay 접근 없이는 IoT 기능 사용 불가.
 > - 2026-04-20: 저장소를 인메모리(`deque`/`list`)에서 **PostgreSQL**로 변경.
 >   Relay는 기존에 N100에서 돌던 다른 PostgreSQL 과 **격리된 전용 컨테이너(`iot-postgres`)** 를 운영한다.
 >   30초 주기 INSERT 워크로드가 기존 DB 성능에 영향을 주지 않고 백업/업그레이드/리셋도 독립.
