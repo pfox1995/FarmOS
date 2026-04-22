@@ -483,6 +483,15 @@ export interface ToolCallTrace {
   result: Record<string, unknown>;
 }
 
+// turn 단위 판단 흐름 — LLM 의 reasoning + 그 turn 에서 호출한 tool 묶음.
+// is_summary=true 는 루프 종료 후 강제 생성된 종합 요약 turn (tool_calls 비어 있음).
+export interface ReasoningTurn {
+  turn: number;
+  reasoning: string;
+  tool_calls: ToolCallTrace[];
+  is_summary?: boolean;
+}
+
 export interface AIDecision {
   id: string;
   timestamp: string;
@@ -491,7 +500,9 @@ export interface AIDecision {
   reason: string;
   priority: string;
   source: "rule" | "llm" | "manual" | "tool";
-  tool_calls?: ToolCallTrace[];
+  // 과거 레코드는 ToolCallTrace[] 평탄형, 현재는 ReasoningTurn[] turn형.
+  // DB 리셋 전까지 두 shape 이 섞일 수 있음 — 모달에서 분기 렌더링.
+  tool_calls?: Array<ToolCallTrace | ReasoningTurn>;
   // Design Ref §3.1 — agent-action-history 확장 (Bridge 적재 시 채워짐)
   sensor_snapshot?: {
     temperature?: number;

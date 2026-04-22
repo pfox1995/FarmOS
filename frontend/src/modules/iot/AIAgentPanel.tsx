@@ -21,6 +21,9 @@ import CropProfileModal from './CropProfileModal';
 import AIActivitySummaryCards from './AIActivitySummaryCards';
 import AIDecisionDetailModal from './AIDecisionDetailModal';
 import { useAIAgent } from '@/hooks/useAIAgent';
+import DateRangeFilter, {
+  type DateRangeValue,
+} from '@/components/DateRangeFilter';
 
 function PriorityBadge({ priority }: { priority: string }) {
   const colors: Record<string, string> = {
@@ -87,10 +90,13 @@ function DecisionRow({
   decision: AIDecision;
   onOpen: (id: string) => void;
 }) {
-  const time = new Date(decision.timestamp).toLocaleTimeString('ko-KR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  // 년-월-일 시:분 (24h). ko-KR locale 의 기본 포맷("2026. 04. 22. 14:30") 대신
+  // 공백/구분자를 가지런히 직접 포맷.
+  const d = new Date(decision.timestamp);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
   const typeLabels: Record<string, string> = {
     ventilation: '환기',
     irrigation: '관수',
@@ -107,7 +113,10 @@ function DecisionRow({
       className="w-full text-left py-2.5 border-b border-gray-100 last:border-0 hover:bg-white/60 rounded px-1 transition-colors"
     >
       <div className="flex items-start gap-3">
-        <span className="text-xs text-gray-400 mt-0.5 shrink-0 w-12">{time}</span>
+        <div className="shrink-0 w-[88px] mt-0.5 leading-tight">
+          <div className="text-[11px] text-gray-500 font-mono">{dateStr}</div>
+          <div className="text-[11px] text-gray-400 font-mono">{timeStr}</div>
+        </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-gray-800">
@@ -117,9 +126,6 @@ function DecisionRow({
             <SourceBadge source={decision.source} />
             {toolCount > 0 && (
               <span className="text-[10px] text-indigo-500">· 도구 {toolCount}</span>
-            )}
-            {decision.duration_ms != null && (
-              <span className="text-[10px] text-gray-400">· {decision.duration_ms}ms</span>
             )}
           </div>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed line-clamp-2">
@@ -147,9 +153,21 @@ export default function AIAgentPanel() {
     listLoading,
     fetchMore,
     fetchDetail,
+    setDateRange,
   } = useAIAgent();
 
   const [profileOpen, setProfileOpen] = useState(false);
+
+  // 최근 판단 날짜 범위 필터 상태 — 기본값: 전체(필터 없음)
+  const [decisionRange, setDecisionRange] = useState<DateRangeValue>({
+    since: null,
+    until: null,
+    preset: 'all',
+  });
+  const handleRangeChange = (v: DateRangeValue) => {
+    setDecisionRange(v);
+    setDateRange(v.since, v.until);
+  };
 
   // 상세 모달 상태
   const [detailOpen, setDetailOpen] = useState(false);
@@ -353,43 +371,50 @@ export default function AIAgentPanel() {
           </div>
         )}
 
-        {/* 최근 판단 — 상세 모달 + 더보기 */}
-        {decisions.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <MdHistory className="text-gray-400" />
-                <span className="text-sm font-semibold text-gray-700">최근 판단</span>
-                <span className="text-xs text-gray-400">
-                  ({status.total_decisions}건 · 표시 {decisions.length})
-                </span>
-              </div>
+        {/* 최근 판단 — 상세 모달 + 더보기. AI Agent 활성 여부와 무관하게 상시 표시. */}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <MdHistory className="text-gray-400" />
+              <span className="text-sm font-semibold text-gray-700">최근 판단</span>
+              <span className="text-xs text-gray-400">
+                (표시 {decisions.length}건)
+              </span>
             </div>
-            <div className="bg-gray-50 rounded-xl p-2 max-h-96 overflow-y-auto">
-              {decisions.map((d) => (
-                <DecisionRow key={d.id} decision={d} onOpen={openDetail} />
-              ))}
-              {hasMore && (
-                <div className="pt-2 pb-1 flex justify-center">
-                  <button
-                    data-testid="ai-more-btn"
-                    onClick={() => fetchMore()}
-                    disabled={listLoading}
-                    className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 disabled:text-gray-400"
-                  >
-                    <MdExpandMore className="text-base" />
-                    {listLoading ? '불러오는 중…' : '더보기'}
-                  </button>
-                </div>
-              )}
-              {!hasMore && decisions.length > 5 && (
-                <p className="pt-2 pb-1 text-[11px] text-gray-400 text-center">
-                  모든 이력을 불러왔습니다
-                </p>
-              )}
-            </div>
+            <DateRangeFilter value={decisionRange} onChange={handleRangeChange} />
           </div>
-        )}
+          <div className="bg-gray-50 rounded-xl p-2 max-h-96 overflow-y-auto">
+            {decisions.length === 0 ? (
+              <p className="py-6 text-xs text-gray-400 text-center">
+                아직 기록된 판단 내역이 없습니다.
+              </p>
+            ) : (
+              <>
+                {decisions.map((d) => (
+                  <DecisionRow key={d.id} decision={d} onOpen={openDetail} />
+                ))}
+                {hasMore && (
+                  <div className="pt-2 pb-1 flex justify-center">
+                    <button
+                      data-testid="ai-more-btn"
+                      onClick={() => fetchMore()}
+                      disabled={listLoading}
+                      className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 disabled:text-gray-400"
+                    >
+                      <MdExpandMore className="text-base" />
+                      {listLoading ? '불러오는 중…' : '더보기'}
+                    </button>
+                  </div>
+                )}
+                {!hasMore && decisions.length > 5 && (
+                  <p className="pt-2 pb-1 text-[11px] text-gray-400 text-center">
+                    모든 이력을 불러왔습니다
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 작물 프로필 모달 */}

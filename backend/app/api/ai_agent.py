@@ -141,6 +141,7 @@ async def list_decisions(
     source: str | None = Query(default=None, pattern="^(rule|llm|tool|manual)$"),
     priority: str | None = Query(default=None, pattern="^(emergency|high|medium|low)$"),
     since: datetime | None = Query(default=None, description="timestamp >= since"),
+    until: datetime | None = Query(default=None, description="timestamp <= until"),
     db: AsyncSession = Depends(get_db),
 ) -> DecisionListOut:
     """최신순 cursor pagination. limit+1 을 fetch 해 has_more 판정."""
@@ -155,6 +156,8 @@ async def list_decisions(
         conds.append(AiAgentDecision.priority == priority)
     if since is not None:
         conds.append(AiAgentDecision.timestamp >= since)
+    if until is not None:
+        conds.append(AiAgentDecision.timestamp <= until)
 
     stmt = select(AiAgentDecision)
     if conds:

@@ -1,7 +1,7 @@
 // Design Ref §5.3 — 오늘/7일/30일 집계 카드.
 // Plan SC-2 커버: 제어 타입/소스/우선순위 분포와 평균 duration.
 
-import { MdBarChart, MdTimer, MdCategory, MdBolt } from 'react-icons/md';
+import { MdBarChart, MdCategory, MdBolt } from 'react-icons/md';
 import type { ActivitySummary } from '@/types';
 
 interface Props {
@@ -97,8 +97,8 @@ export default function AIActivitySummaryCards({
         })}
       </div>
 
-      {/* 카드 4개 */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {/* 카드 3개 */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Card
           icon={<MdBarChart className="text-indigo-500" />}
           label="총 판단"
@@ -127,15 +127,6 @@ export default function AIActivitySummaryCards({
           label="최다 소스"
           value={topSrc ? `${SRC_LABELS[topSrc[0]] ?? topSrc[0]}` : '-'}
           sub={topSrc ? `${topSrc[1]}건` : undefined}
-        />
-        <Card
-          icon={<MdTimer className="text-emerald-500" />}
-          label="평균 판단시간"
-          value={
-            summary?.avg_duration_ms != null
-              ? `${summary.avg_duration_ms}ms`
-              : '-'
-          }
         />
       </div>
     </div>

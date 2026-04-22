@@ -4,6 +4,25 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useSensorData } from '@/hooks/useSensorData';
 import AIAgentPanel from './AIAgentPanel';
 import ManualControlPanel from './ManualControlPanel';
+import DateRangeFilter, {
+  type DateRangeValue,
+} from '@/components/DateRangeFilter';
+
+// 날짜 범위로 timestamp 기반 배열 필터. since/until 둘 다 null 이면 원본 반환.
+function filterByDateRange<T>(
+  items: T[],
+  getTimestamp: (item: T) => string,
+  since: Date | null,
+  until: Date | null,
+): T[] {
+  if (!since && !until) return items;
+  return items.filter((item) => {
+    const ts = new Date(getTimestamp(item)).getTime();
+    if (since && ts < since.getTime()) return false;
+    if (until && ts > until.getTime()) return false;
+    return true;
+  });
+}
 
 function SensorCard({ icon: Icon, label, value, unit, color, threshold, warning, disabled }: {
   icon: React.ElementType; label: string; value: number | null; unit: string;
@@ -262,7 +281,112 @@ function IrrigationModal({ irrigations, onClose }: IrrigationModalProps) {
 }
 
 const INITIAL_COUNT = 3;
-const INCREMENT = 3;
+
+interface SensorAlertItem {
+  id: string;
+  timestamp: string;
+  severity: string;
+  message: string;
+  resolved?: boolean;
+}
+
+function AlertsModal({
+  alerts,
+  onClose,
+}: {
+  alerts: SensorAlertItem[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-900">센서 알림 상세</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+            aria-label="닫기"
+          >
+            <MdClose className="text-xl" />
+          </button>
+        </div>
+        <div className="px-6 py-4 overflow-y-auto flex-1">
+          <p className="text-sm font-medium text-gray-600 mb-2">
+            전체 알림 ({alerts.length}건)
+          </p>
+          {alerts.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-8">
+              해당 기간에 알림이 없습니다
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {alerts.map((a) => (
+                <div
+                  key={a.id}
+                  className={`flex items-center gap-3 p-3 rounded-xl ${
+                    a.severity === '위험' || a.severity === '경고'
+                      ? 'bg-red-50'
+                      : a.severity === '주의'
+                      ? 'bg-yellow-50'
+                      : 'bg-blue-50'
+                  }`}
+                >
+                  <span
+                    className={`badge text-xs flex-shrink-0 ${
+                      a.severity === '위험' || a.severity === '경고'
+                        ? 'badge-danger'
+                        : a.severity === '주의'
+                        ? 'badge-warning'
+                        : 'badge-info'
+                    }`}
+                  >
+                    {a.severity}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-800">{a.message}</p>
+                    <p className="text-xs text-gray-400">
+                      {new Date(a.timestamp).toLocaleString('ko-KR', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
+                  {a.resolved && (
+                    <span className="text-xs text-green-600 flex-shrink-0">해결됨</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function IoTDashboardPage() {
   const { latest, history, alerts, irrigations, connected } = useSensorData();
@@ -270,10 +394,46 @@ export default function IoTDashboardPage() {
   const inactive = !connected || !hasData;
 
   const [irrigationModalOpen, setIrrigationModalOpen] = useState(false);
-  const [alertCount, setAlertCount] = useState(INITIAL_COUNT);
+  const [alertsModalOpen, setAlertsModalOpen] = useState(false);
 
   const handleOpenIrrigationModal = useCallback(() => setIrrigationModalOpen(true), []);
   const handleCloseIrrigationModal = useCallback(() => setIrrigationModalOpen(false), []);
+  const handleOpenAlertsModal = useCallback(() => setAlertsModalOpen(true), []);
+  const handleCloseAlertsModal = useCallback(() => setAlertsModalOpen(false), []);
+
+  // 관수 이력 · 센서 알림 날짜 범위 필터 (클라이언트 사이드)
+  const [irrigationRange, setIrrigationRange] = useState<DateRangeValue>({
+    since: null,
+    until: null,
+    preset: 'all',
+  });
+  const [alertsRange, setAlertsRange] = useState<DateRangeValue>({
+    since: null,
+    until: null,
+    preset: 'all',
+  });
+
+  const filteredIrrigations = useMemo(
+    () =>
+      filterByDateRange(
+        irrigations,
+        (e: any) => e.triggeredAt,
+        irrigationRange.since,
+        irrigationRange.until,
+      ),
+    [irrigations, irrigationRange.since, irrigationRange.until],
+  );
+
+  const filteredAlerts = useMemo(
+    () =>
+      filterByDateRange(
+        alerts,
+        (a: any) => a.timestamp,
+        alertsRange.since,
+        alertsRange.until,
+      ),
+    [alerts, alertsRange.since, alertsRange.until],
+  );
 
   const chartData = useMemo(() =>
     history.map(r => ({
@@ -351,13 +511,23 @@ export default function IoTDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Irrigation Events */}
         <div className={`card ${inactive ? 'opacity-50' : ''}`}>
-          <h3 className="section-title mb-3">관수 이력</h3>
-          {irrigations.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-4">관수 이력이 없습니다</p>
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <h3 className="section-title !mb-0">관수 이력</h3>
+            <DateRangeFilter
+              value={irrigationRange}
+              onChange={setIrrigationRange}
+            />
+          </div>
+          {filteredIrrigations.length === 0 ? (
+            <p className="text-gray-400 text-sm text-center py-4">
+              {irrigations.length === 0
+                ? '관수 이력이 없습니다'
+                : '해당 기간에 관수 이력이 없습니다'}
+            </p>
           ) : (
             <>
               <div className="space-y-2">
-                {irrigations.slice(0, INITIAL_COUNT).map((e: any) => (
+                {filteredIrrigations.slice(0, INITIAL_COUNT).map((e: any) => (
                   <div key={e.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50">
                     <span className={`w-3 h-3 rounded-full ${e.valveAction === '열림' ? 'bg-blue-500' : 'bg-gray-400'}`} />
                     <div className="flex-1 min-w-0">
@@ -373,13 +543,13 @@ export default function IoTDashboardPage() {
                   </div>
                 ))}
               </div>
-              {irrigations.length > INITIAL_COUNT && (
+              {filteredIrrigations.length > INITIAL_COUNT && (
                 <div className="flex gap-2 mt-3">
                   <button
                     onClick={handleOpenIrrigationModal}
                     className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[#2D5F2D] text-[#2D5F2D] hover:bg-[#2D5F2D] hover:text-white transition-colors"
                   >
-                    더보기 ({irrigations.length - INITIAL_COUNT}건 더)
+                    더보기 ({filteredIrrigations.length - INITIAL_COUNT}건 더)
                   </button>
                 </div>
               )}
@@ -389,13 +559,20 @@ export default function IoTDashboardPage() {
 
         {/* Alerts */}
         <div className={`card ${inactive ? 'opacity-50' : ''}`}>
-          <h3 className="section-title mb-3">센서 알림</h3>
-          {alerts.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-4">알림이 없습니다</p>
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <h3 className="section-title !mb-0">센서 알림</h3>
+            <DateRangeFilter value={alertsRange} onChange={setAlertsRange} />
+          </div>
+          {filteredAlerts.length === 0 ? (
+            <p className="text-gray-400 text-sm text-center py-4">
+              {alerts.length === 0
+                ? '알림이 없습니다'
+                : '해당 기간에 알림이 없습니다'}
+            </p>
           ) : (
             <>
               <div className="space-y-2">
-                {alerts.slice(0, alertCount).map((a: any) => (
+                {filteredAlerts.slice(0, INITIAL_COUNT).map((a: any) => (
                   <div key={a.id} className={`flex items-center gap-3 p-3 rounded-xl ${
                     a.severity === '위험' || a.severity === '경고' ? 'bg-red-50' :
                     a.severity === '주의' ? 'bg-yellow-50' : 'bg-blue-50'
@@ -416,24 +593,16 @@ export default function IoTDashboardPage() {
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2 mt-3">
-                {alertCount < alerts.length && (
+              {filteredAlerts.length > INITIAL_COUNT && (
+                <div className="flex gap-2 mt-3">
                   <button
-                    onClick={() => setAlertCount(c => c + INCREMENT)}
+                    onClick={handleOpenAlertsModal}
                     className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[#2D5F2D] text-[#2D5F2D] hover:bg-[#2D5F2D] hover:text-white transition-colors"
                   >
-                    더보기 ({Math.min(INCREMENT, alerts.length - alertCount)}건)
+                    더보기 ({filteredAlerts.length - INITIAL_COUNT}건 더)
                   </button>
-                )}
-                {alertCount > INITIAL_COUNT && (
-                  <button
-                    onClick={() => setAlertCount(INITIAL_COUNT)}
-                    className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-100 transition-colors"
-                  >
-                    접기
-                  </button>
-                )}
-              </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -447,8 +616,14 @@ export default function IoTDashboardPage() {
 
       {irrigationModalOpen && (
         <IrrigationModal
-          irrigations={irrigations as IrrigationEvent[]}
+          irrigations={filteredIrrigations as IrrigationEvent[]}
           onClose={handleCloseIrrigationModal}
+        />
+      )}
+      {alertsModalOpen && (
+        <AlertsModal
+          alerts={filteredAlerts as SensorAlertItem[]}
+          onClose={handleCloseAlertsModal}
         />
       )}
     </div>

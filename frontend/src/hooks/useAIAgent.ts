@@ -31,12 +31,22 @@ export function useAIAgent() {
   const [hasMore, setHasMore] = useState(false);
   const [listLoading, setListLoading] = useState(false);
 
+  // 날짜 범위 필터 (decisions 목록 재조회 시 사용)
+  const [dateSince, setDateSince] = useState<Date | null>(null);
+  const [dateUntil, setDateUntil] = useState<Date | null>(null);
+
   // ── 기존 Relay 상태 fetch ─────────────────────────────────────────────────
   const fetchStatus = useCallback(async () => {
     try {
+      const params = new URLSearchParams({ limit: '20' });
+      if (dateSince) params.set('since', dateSince.toISOString());
+      if (dateUntil) params.set('until', dateUntil.toISOString());
+
       const [statusRes, decisionsRes] = await Promise.all([
         fetch(`${RELAY_API_BASE}/ai-agent/status`, { credentials: 'omit' }),
-        fetch(`${FARMOS_API_BASE}/ai-agent/decisions?limit=20`, { credentials: 'include' }),
+        fetch(`${FARMOS_API_BASE}/ai-agent/decisions?${params}`, {
+          credentials: 'include',
+        }),
       ]);
       if (statusRes.ok) {
         const data = await statusRes.json();
@@ -48,7 +58,7 @@ export function useAIAgent() {
         setNextCursor(data.next_cursor ?? null);
         setHasMore(Boolean(data.has_more));
       } else if (decisionsRes.status === 401) {
-        // FarmOS 로그인 안된 경우 — Relay fallback 으로 최근 20건 시도
+        // FarmOS 로그인 안된 경우 — Relay fallback 으로 최근 20건 시도 (필터 미적용)
         try {
           const fb = await fetch(
             `${RELAY_API_BASE}/ai-agent/decisions?limit=20`,
@@ -69,7 +79,16 @@ export function useAIAgent() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateSince, dateUntil]);
+
+  // 날짜 필터 변경 API — AIAgentPanel 에서 DateRangeFilter 로부터 호출.
+  const setDateRange = useCallback(
+    (since: Date | null, until: Date | null) => {
+      setDateSince(since);
+      setDateUntil(until);
+    },
+    [],
+  );
 
   // ── FarmOS /activity/summary ──────────────────────────────────────────────
   const fetchSummary = useCallback(
@@ -105,6 +124,8 @@ export function useAIAgent() {
         if (opts?.control_type) params.set('control_type', opts.control_type);
         if (opts?.source) params.set('source', opts.source);
         if (opts?.priority) params.set('priority', opts.priority);
+        if (dateSince) params.set('since', dateSince.toISOString());
+        if (dateUntil) params.set('until', dateUntil.toISOString());
 
         const res = await fetch(
           `${FARMOS_API_BASE}/ai-agent/decisions?${params}`,
@@ -126,7 +147,7 @@ export function useAIAgent() {
         setListLoading(false);
       }
     },
-    [listLoading, nextCursor]
+    [listLoading, nextCursor, dateSince, dateUntil]
   );
 
   // ── FarmOS /decisions/{id} (단건 상세) ────────────────────────────────────
@@ -287,5 +308,9 @@ export function useAIAgent() {
     listLoading,
     fetchMore,
     fetchDetail,
+    // 날짜 범위 필터
+    dateSince,
+    dateUntil,
+    setDateRange,
   };
 }
