@@ -39,6 +39,8 @@ import json
 import logging
 import time
 
+import httpx
+
 from app.core.llm_client_base import BaseLLMClient, get_llm_client
 from app.core.config import settings
 
@@ -280,6 +282,16 @@ class ReviewAnalyzer:
                 if attempt == max_retries:
                     logger.error("LLM 분석 최대 재시도 초과, 이 배치 건너뜀")
                     return None
+            except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:
+                # Cloudflare 504 / 네트워크 일시 오류 등 — 지수 백오프 후 재시도
+                wait = 2 ** attempt
+                logger.warning(
+                    f"LLM HTTP 오류 (시도 {attempt + 1}/{max_retries + 1}): {e} → {wait}초 후 재시도"
+                )
+                if attempt == max_retries:
+                    logger.error("LLM HTTP 최대 재시도 초과, 이 배치 건너뜀")
+                    return None
+                await asyncio.sleep(wait)
 
     # ------------------------------------------------------------------
     # 프롬프트 포맷팅

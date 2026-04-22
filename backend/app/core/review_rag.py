@@ -52,49 +52,56 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-COLLECTION_NAME = "reviews_bge_m3"
-EMBED_MODEL = "bge-m3"
+COLLECTION_NAME = "reviews_voyage_v35"
 
 
-class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
-    """Ollama LLM을 사용하는 ChromaDB 임베딩 함수.
+class LiteLLMEmbeddingFunction(EmbeddingFunction[Documents]):
+    """LiteLLM 프록시 경유 임베딩 함수 (OpenAI 호환 /embeddings 엔드포인트).
 
     학습 포인트:
-        ChromaDB는 커스텀 임베딩 함수를 주입할 수 있습니다.
-        EmbeddingFunction을 상속하고 __call__을 구현하면,
-        add()나 query() 시 이 함수가 자동으로 호출됩니다.
+        LiteLLM은 인퍼런스를 하지 않고 HTTP 포워딩만 하는 프록시입니다.
+        실제 임베딩 연산은 LiteLLM config에 등록된 외부 제공자에서 수행됩니다.
+        예: VoyageAI, OpenAI, Cohere 등.
 
-        nomic-embed-text는 한국어를 지원하지 않아 모든 입력에 동일한 벡터를 반환합니다.
-        llama3.1:8b는 다국어를 지원하여 한국어 의미를 정확히 구분합니다.
+        N100 위에 LiteLLM이 올라가 있어도 N100은 요청을 외부로 중계만 하므로
+        CPU 부하가 거의 0이며, 저사양 PC여도 병목이 발생하지 않습니다.
 
-        예시 (검색어: "포장이 엉망이에요"):
-          nomic-embed-text: 모든 결과 동일 (한국어 미지원)
-          llama3.1:8b:      "멍투성이" 0.95, "당도 높아요" 0.89 ← 관련 리뷰가 상위
+        모델 전환은 .env 의 EMBED_MODEL / EMBED_DIM 만 바꾸면 되며,
+        차원이 바뀌면 COLLECTION_NAME 도 같이 바꿔서 전체 재임베딩합니다.
     """
 
-    def __init__(self, base_url: str | None = None, model: str = EMBED_MODEL):
-        self.base_url = base_url or settings.OLLAMA_BASE_URL
-        self.model = model
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+    ):
+        self.base_url = base_url or settings.LITELLM_URL
+        self.api_key = api_key or settings.LITELLM_API_KEY
+        self.model = model or settings.EMBED_MODEL
 
     def __call__(self, input: Documents) -> Embeddings:
         """텍스트 리스트를 임베딩 벡터 리스트로 변환 (배치)."""
         batch_size = 64
-        embeddings = []
+        embeddings: list[list[float]] = []
         for i in range(0, len(input), batch_size):
             batch = list(input[i:i + batch_size])
             try:
                 resp = httpx.post(
-                    f"{self.base_url}/api/embed",
+                    f"{self.base_url}/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
                     json={"model": self.model, "input": batch},
                     timeout=120.0,
                 )
                 resp.raise_for_status()
-                batch_embeddings = resp.json()["embeddings"]
-                embeddings.extend(batch_embeddings)
+                data = resp.json()["data"]
+                embeddings.extend([d["embedding"] for d in data])
             except Exception as e:
-                logger.error(f"Ollama 배치 임베딩 실패: {e}")
-                dim = 1024 if "bge" in self.model else 768
-                embeddings.extend([[0.0] * dim for _ in batch])
+                logger.error(f"LiteLLM 임베딩 실패: {e}")
+                embeddings.extend([[0.0] * settings.EMBED_DIM for _ in batch])
         return embeddings
 
 
@@ -111,7 +118,7 @@ class ReviewRAG:
 
     def __init__(self):
         client = get_client()
-        self._embed_fn = OllamaEmbeddingFunction()
+        self._embed_fn = LiteLLMEmbeddingFunction()
         self.collection = client.get_or_create_collection(
             name=COLLECTION_NAME,
             embedding_function=self._embed_fn,
@@ -276,8 +283,10 @@ class ReviewRAG:
         where_filter = self._build_where_filter(filters)
 
         try:
-            # 벡터 검색 (top_k보다 넓게 가져와서 키워드 부스팅 후 재정렬)
-            fetch_count = min(top_k * 3, 150)
+            # 벡터 검색 (top_k보다 크게 가져와서 dedup 후에도 충분한 결과가 남도록)
+            # 더미/시드 데이터에 동일 문장이 상품별로 반복 저장된 경우를 대비해
+            # 넉넉히 fetch → 키워드 부스팅 → 텍스트 중복 제거 → top_k 반환
+            fetch_count = min(max(top_k * 10, 50), 300)
             results = self.collection.query(
                 query_texts=[query],
                 n_results=fetch_count,
@@ -295,9 +304,22 @@ class ReviewRAG:
                         break
                 r["similarity"] = round(r["similarity"] + boost, 4)
 
-            # 하이브리드 점수로 재정렬 후 top_k만 반환
+            # 하이브리드 점수로 재정렬
             vector_results.sort(key=lambda x: x["similarity"], reverse=True)
-            return vector_results[:top_k]
+
+            # 텍스트 기반 중복 제거 — 동일 content 는 가장 높은 점수 1건만 유지
+            # (상품은 달라도 리뷰 본문이 같은 시드 데이터의 시각적 중복을 제거)
+            seen_texts: set[str] = set()
+            deduped: list[dict] = []
+            for r in vector_results:
+                text_key = r.get("text", "").strip()
+                if text_key in seen_texts:
+                    continue
+                seen_texts.add(text_key)
+                deduped.append(r)
+                if len(deduped) >= top_k:
+                    break
+            return deduped
 
         except Exception as e:
             logger.error(f"리뷰 검색 실패: {e}")

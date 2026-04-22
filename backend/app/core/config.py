@@ -34,11 +34,17 @@ class Settings(BaseSettings):
     KAMIS_API_KEY: str = ""
     KAMIS_CERT_ID: str = ""
 
-    # OpenRouter (LLM API)
+    # OpenRouter (LLM API) — 진단/일지/공통 LLM 클라이언트에서 사용
+    # NOTE: LiteLLM 프록시에 등록된 모델명을 그대로 사용해야 함 (접두사 없이)
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_URL: str = "https://litellm.lilpa.moe/v1"
-    OPENROUTER_MODEL: str = "google/gemma-4-31b-it"
-    OPENROUTER_PEST_RAG_MODEL: str = "openai/gpt-4o"
+    OPENROUTER_MODEL: str = "gpt-5-nano"
+    OPENROUTER_PEST_RAG_MODEL: str = "gpt-5-nano"
+
+    # LiteLLM 프록시 — 리뷰 자동화(임베딩) 전용 네이밍 (실제 호스트는 OPENROUTER_URL 과 동일 가능)
+    LITELLM_API_KEY: str = ""
+    LITELLM_URL: str = "https://litellm.lilpa.moe/v1"
+    LITELLM_MODEL: str = "gpt-5-nano"
 
     # 외부 데이터 API (기상청, NCPMS, 농약안전정보시스템)
     WEATHER_API_KEY: str = ""
@@ -54,10 +60,19 @@ class Settings(BaseSettings):
     FOOD_SAFETY_API_KEY: str = ""
 
     # LLM Provider (리뷰 분석용)
-    LLM_PROVIDER: str = "ollama"  # ollama | openrouter | ollama_remote
+    LLM_PROVIDER: str = "openrouter"  # ollama | openrouter | ollama_remote
     LLM_MODEL: str = "llama3.1:8b"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_REMOTE_URL: str = ""  # RunPod 등 원격 Ollama URL
+
+    # Review Embedding (LiteLLM 프록시 경유, VoyageAI 등)
+    EMBED_MODEL: str = "voyage-3.5"
+    EMBED_DIM: int = 1024
+
+    # LLM 리즈닝 강도 (GPT-5 계열 reasoning 모델용)
+    # minimal | low | medium | high  또는 "none"(파라미터 미전송)
+    # non-reasoning 모델(gemma, gpt-oss 등)은 무시됨
+    LLM_REASONING_EFFORT: str = "minimal"
 
     # Review Analysis
     REVIEW_ANALYSIS_BATCH_SIZE: int = 40

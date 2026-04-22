@@ -195,25 +195,40 @@ class OpenRouterClient(BaseLLMClient):
         return await self.chat(messages)
 
     async def chat(self, messages: list[dict]) -> str:
-        """OpenRouter chat/completions 엔드포인트 호출."""
+        """OpenRouter chat/completions 엔드포인트 호출.
+
+        학습 포인트:
+            GPT-5 계열 등 리즈닝 모델은 기본적으로 내부 추론 토큰을 많이 소비합니다.
+            단순 JSON 생성 용도에선 리즈닝이 불필요하므로
+            settings.LLM_REASONING_EFFORT 로 "minimal" 로 낮춰 속도/비용을 확보합니다.
+
+            - reasoning_effort: minimal | low | medium | high
+            - None 으로 지정하면 파라미터를 아예 보내지 않아 기본값(medium) 사용
+            - non-reasoning 모델(gemma, gpt-oss 등)은 이 파라미터를 무시
+        """
         if not self.api_key:
             raise ValueError(
                 "OPENROUTER_API_KEY가 설정되지 않았습니다. "
                 ".env 파일에 OPENROUTER_API_KEY=sk-or-xxx를 추가하세요."
             )
 
+        payload: dict = {
+            "model": self.model,
+            "messages": messages,
+        }
+        effort = settings.LLM_REASONING_EFFORT.strip().lower()
+        if effort and effort != "none":
+            payload["reasoning_effort"] = effort
+
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(
                     f"{self.base_url}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json",
                     },
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                    },
+                    json=payload,
                 )
                 resp.raise_for_status()
                 data = resp.json()
