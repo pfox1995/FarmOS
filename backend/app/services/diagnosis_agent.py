@@ -642,7 +642,8 @@ async def generate_diagnosis(state: DiagnosisState) -> dict:
         base_url=settings.OPENROUTER_URL,
         temperature=0.0,
         max_retries=2,
-        http_async_client=custom_async_client
+        http_async_client=custom_async_client,
+        model_kwargs={"extra_body": {"include_reasoning": False}}
     )
 
     try:
