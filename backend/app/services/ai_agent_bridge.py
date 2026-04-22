@@ -23,6 +23,7 @@ import json
 import logging
 from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select, text
@@ -105,15 +106,24 @@ class AiAgentBridge:
         if self._client is not None:
             try:
                 await self._client.aclose()
-            except Exception:  # noqa: BLE001
-                pass
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — 종료 흐름은 계속 진행
+                logger.warning(
+                    "ai_agent_bridge.stop_aclose_failed err=%s", exc, exc_info=True
+                )
             self._client = None
         if self._task and not self._task.done():
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except asyncio.CancelledError:
+                # 우리가 직접 cancel 했으므로 정상 흐름 — 무시
                 pass
+            except Exception as exc:  # noqa: BLE001 — task 내부 마지막 예외만 기록
+                logger.warning(
+                    "ai_agent_bridge.stop_task_failed err=%s", exc, exc_info=True
+                )
         self._task = None
         self.healthy = False
         logger.info("ai_agent_bridge.stopped processed=%d", self.total_processed)
@@ -150,18 +160,37 @@ class AiAgentBridge:
     # ── HTTP Backfill ─────────────────────────────────────────────────────────
 
     async def _backfill_since_last(self) -> int:
-        """FarmOS 의 가장 최근 timestamp 이후 decisions 를 Relay 에서 당겨와 UPSERT."""
+        """FarmOS 의 가장 최근 (timestamp, id) 이후 decisions 를 Relay 에서 당겨와 UPSERT.
+
+        동일 timestamp 다중 행이 페이지 경계에 걸려도 누락/중복이 없도록
+        (since, after_id) 복합 cursor 로 keyset pagination 한다.
+        - `since`: 마지막 적재된 timestamp (inclusive 가정)
+        - `after_id`: 동일 `since` timestamp 에서 이 id 보다 큰 행만 수신 (Relay 가 미지원시 무시)
+        UPSERT 는 ON CONFLICT (id) DO NOTHING 이라 중복은 멱등 처리된다.
+        """
         async with self._session_factory() as db:
-            last_ts = await db.scalar(select(AiAgentDecision.timestamp).order_by(AiAgentDecision.timestamp.desc()).limit(1))
+            last = (await db.execute(
+                select(AiAgentDecision.timestamp, AiAgentDecision.id)
+                .order_by(
+                    AiAgentDecision.timestamp.desc(), AiAgentDecision.id.desc()
+                )
+                .limit(1)
+            )).first()
+
+        last_ts: datetime | None = last.timestamp if last else None
+        last_id: str | None = last.id if last else None
 
         client = self._get_client()
         total = 0
         cursor_since = last_ts.isoformat() if last_ts else None
+        cursor_after_id = last_id if last_ts else None
 
         for _ in range(_BACKFILL_MAX_PAGES):
             params: dict[str, Any] = {"limit": self._settings.AI_AGENT_BACKFILL_PAGE_SIZE}
             if cursor_since:
                 params["since"] = cursor_since
+            if cursor_after_id:
+                params["after_id"] = cursor_after_id
 
             resp = await client.get("/api/v1/ai-agent/decisions", params=params)
             if resp.status_code == 404:
@@ -175,23 +204,36 @@ class AiAgentBridge:
             if not items:
                 break
 
+            # 배치 내 (max_ts, max_id_at_max_ts) 를 추적해 다음 cursor 산출.
+            # 모든 raw 를 대상으로 진전시켜야 동일 timestamp 다중 행 페이지 경계에서
+            # 무한 루프(=cursor 정체) 를 방지한다 (중복 행이라도 cursor 는 진전).
             max_ts_in_batch: datetime | None = None
+            max_id_at_max_ts: str | None = None
             async with self._session_factory() as db:
                 for raw in items:
                     applied = await self._upsert_and_summarize(db, raw)
                     if applied:
                         total += 1
                         self.total_processed += 1
-                        ts = _coerce_datetime(raw.get("timestamp"))
-                        if ts and (max_ts_in_batch is None or ts > max_ts_in_batch):
-                            max_ts_in_batch = ts
+                    ts = _coerce_datetime(raw.get("timestamp"))
+                    raw_id = str(raw.get("id") or "").strip()
+                    if ts is None or not raw_id:
+                        continue
+                    if max_ts_in_batch is None or ts > max_ts_in_batch:
+                        max_ts_in_batch = ts
+                        max_id_at_max_ts = raw_id
+                    elif ts == max_ts_in_batch:
+                        if max_id_at_max_ts is None or raw_id > max_id_at_max_ts:
+                            max_id_at_max_ts = raw_id
                 await db.commit()
 
             if len(items) < self._settings.AI_AGENT_BACKFILL_PAGE_SIZE:
                 break
             if max_ts_in_batch is None:
+                # 배치 전체가 비정상 payload — cursor 진전 불가, 안전 종료
                 break
             cursor_since = max_ts_in_batch.isoformat()
+            cursor_after_id = max_id_at_max_ts
 
         self.last_backfill_at = datetime.now(timezone.utc)
         if total > 0:
@@ -307,8 +349,9 @@ class AiAgentBridge:
         if result.rowcount == 0:
             return False  # 중복
 
-        # 2) 집계 bump — 이미 신규 row 확정
-        await self._bump_daily(db, timestamp.date(), control_type, priority, source, timestamp, duration_ms)
+        # 2) 집계 bump — 이미 신규 row 확정. 일 버킷은 APP_TIMEZONE 기준 로컬 날짜.
+        local_day = timestamp.astimezone(ZoneInfo(self._settings.APP_TIMEZONE)).date()
+        await self._bump_daily(db, local_day, control_type, priority, source, timestamp, duration_ms)
         await self._bump_hourly(db, timestamp, control_type, priority, source)
         return True
 
@@ -322,17 +365,27 @@ class AiAgentBridge:
         last_at: datetime,
         duration_ms: int | None,
     ) -> None:
-        """일별 집계 UPSERT — count +1, by_source/by_priority 해당 키 +1, avg_duration_ms 가중 평균."""
+        """일별 집계 UPSERT.
+
+        - count: 모든 decision +1 (null-duration 포함, 행 갯수 기준)
+        - duration_count / duration_sum: duration_ms IS NOT NULL 인 행만 누적
+        - avg_duration_ms = ROUND(duration_sum::numeric / NULLIF(duration_count,0))::int
+          (정수 truncation 없이 반올림. null-duration 행은 분모/분자 모두 제외해 편향 제거)
+        """
         sql = text(
             """
             INSERT INTO ai_agent_activity_daily
                 (day, control_type, count, by_source, by_priority,
-                 avg_duration_ms, last_at, updated_at)
+                 avg_duration_ms, duration_count, duration_sum,
+                 last_at, updated_at)
             VALUES
                 (:day, :ct, 1,
                  jsonb_build_object(CAST(:src AS text), 1),
                  jsonb_build_object(CAST(:pr AS text), 1),
-                 :dur, :last_at, now())
+                 :dur,
+                 CASE WHEN :dur IS NULL THEN 0 ELSE 1 END,
+                 CASE WHEN :dur IS NULL THEN 0 ELSE :dur END,
+                 :last_at, now())
             ON CONFLICT (day, control_type) DO UPDATE SET
                 count = ai_agent_activity_daily.count + 1,
                 by_source = jsonb_set(
@@ -345,13 +398,27 @@ class AiAgentBridge:
                     ARRAY[CAST(:pr AS text)],
                     to_jsonb(COALESCE((ai_agent_activity_daily.by_priority->>:pr)::int, 0) + 1)
                 ),
+                duration_count = ai_agent_activity_daily.duration_count
+                    + CASE WHEN :dur IS NULL THEN 0 ELSE 1 END,
+                duration_sum = ai_agent_activity_daily.duration_sum
+                    + CASE WHEN :dur IS NULL THEN 0 ELSE :dur END,
                 avg_duration_ms = CASE
-                    WHEN :dur IS NULL THEN ai_agent_activity_daily.avg_duration_ms
-                    WHEN ai_agent_activity_daily.avg_duration_ms IS NULL THEN :dur
-                    ELSE (
-                        (ai_agent_activity_daily.avg_duration_ms * ai_agent_activity_daily.count + :dur)
-                        / (ai_agent_activity_daily.count + 1)
-                    )
+                    WHEN (
+                        ai_agent_activity_daily.duration_count
+                        + CASE WHEN :dur IS NULL THEN 0 ELSE 1 END
+                    ) = 0
+                        THEN ai_agent_activity_daily.avg_duration_ms
+                    ELSE ROUND(
+                        (
+                            ai_agent_activity_daily.duration_sum
+                            + CASE WHEN :dur IS NULL THEN 0 ELSE :dur END
+                        )::numeric
+                        / NULLIF(
+                            ai_agent_activity_daily.duration_count
+                            + CASE WHEN :dur IS NULL THEN 0 ELSE 1 END,
+                            0
+                        )
+                    )::int
                 END,
                 last_at = GREATEST(ai_agent_activity_daily.last_at, :last_at),
                 updated_at = now()

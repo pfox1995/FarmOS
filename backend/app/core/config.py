@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     REVIEW_ANALYSIS_BATCH_SIZE: int = 40
     REVIEW_ANALYSIS_MAX_RETRIES: int = 2
 
+    # 앱 타임존 (집계 일/시간 버킷의 로컬 기준)
+    APP_TIMEZONE: str = "Asia/Seoul"
+
     # AI Agent (IoT 자동 제어)
     AI_AGENT_MODEL: str = "openai/gpt-5-mini"
     AI_AGENT_LLM_INTERVAL: int = 300  # LLM 호출 최소 간격 (초)
@@ -70,7 +73,9 @@ class Settings(BaseSettings):
 
     # AI Agent Action History Bridge (Relay → FarmOS 미러)
     IOT_RELAY_BASE_URL: str = "http://localhost:9000"
-    IOT_RELAY_API_KEY: str = "farmos-iot-default-key"
+    # 실제 키는 반드시 .env / 환경변수(IOT_RELAY_API_KEY) 로 주입한다.
+    # 빈 문자열이면 AI_AGENT_BRIDGE_ENABLED=True 라도 Bridge 는 안전하게 비활성화된다.
+    IOT_RELAY_API_KEY: str = ""
     AI_AGENT_BRIDGE_ENABLED: bool = False  # Relay 패치 적용 전 기본 off
     AI_AGENT_MIRROR_TTL_DAYS: int = 30
     AI_AGENT_BACKFILL_PAGE_SIZE: int = 200

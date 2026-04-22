@@ -417,7 +417,7 @@ export default function IoTDashboardPage() {
     () =>
       filterByDateRange(
         irrigations,
-        (e: any) => e.triggeredAt,
+        (e) => e.triggeredAt,
         irrigationRange.since,
         irrigationRange.until,
       ),
@@ -428,7 +428,7 @@ export default function IoTDashboardPage() {
     () =>
       filterByDateRange(
         alerts,
-        (a: any) => a.timestamp,
+        (a) => a.timestamp,
         alertsRange.since,
         alertsRange.until,
       ),
@@ -616,13 +616,13 @@ export default function IoTDashboardPage() {
 
       {irrigationModalOpen && (
         <IrrigationModal
-          irrigations={filteredIrrigations as IrrigationEvent[]}
+          irrigations={filteredIrrigations}
           onClose={handleCloseIrrigationModal}
         />
       )}
       {alertsModalOpen && (
         <AlertsModal
-          alerts={filteredAlerts as SensorAlertItem[]}
+          alerts={filteredAlerts}
           onClose={handleCloseAlertsModal}
         />
       )}

@@ -42,9 +42,9 @@ class AIDecisionOut(BaseModel):
 
     id: str
     timestamp: datetime
-    control_type: str
-    priority: str
-    source: str
+    control_type: ControlType
+    priority: Priority
+    source: Source
     reason: str = ""
     action: dict[str, Any] = Field(default_factory=dict)
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
@@ -54,10 +54,11 @@ class AIDecisionOut(BaseModel):
 
 
 class DecisionListOut(BaseModel):
-    """목록 + cursor pagination 응답. Design §4.2"""
+    """목록 + (timestamp, id) 복합 keyset pagination 응답. Design §4.2"""
 
     items: list[AIDecisionOut]
     next_cursor: datetime | None = None
+    next_cursor_id: str | None = None
     has_more: bool = False
 
 
@@ -79,9 +80,9 @@ class DecisionCreateIn(BaseModel):
 
     id: str = Field(..., min_length=1, max_length=36)
     timestamp: datetime
-    control_type: str = Field(..., pattern="^(ventilation|irrigation|lighting|shading)$")
-    priority: str = Field(..., pattern="^(emergency|high|medium|low)$")
-    source: str = Field(..., pattern="^(rule|llm|tool|manual)$")
+    control_type: ControlType
+    priority: Priority
+    source: Source
     reason: str = ""
     action: dict[str, Any] = Field(default_factory=dict)
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)

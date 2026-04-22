@@ -6,7 +6,7 @@ Design Ref: §3.3 Database Schema — Relay 에서 FarmOS 로 SSE Bridge 로 수
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, DateTime, Integer, String, Text
+from sqlalchemy import BigInteger, Date, DateTime, Index, Integer, String, Text, desc
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +38,17 @@ class AiAgentDecision(Base):
         DateTime(timezone=True), nullable=False, default=_now_utc, index=True
     )
 
+    # list_decisions 쿼리 패턴 (control_type/source 필터 + timestamp DESC 정렬) 가속용
+    # 복합 인덱스. timestamp 는 DESC 로 두어 ORDER BY timestamp DESC 와 정렬 일치.
+    __table_args__ = (
+        Index(
+            "ix_ai_agent_decisions_control_source_timestamp",
+            "control_type",
+            "source",
+            desc("timestamp"),
+        ),
+    )
+
 
 class AiAgentActivityDaily(Base):
     """일별 집계. (day, control_type) 복합 PK. Bridge Worker 가 UPSERT 로 증분 갱신."""
@@ -49,7 +60,11 @@ class AiAgentActivityDaily(Base):
     count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     by_source: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     by_priority: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # avg_duration_ms 는 (duration_sum / duration_count) 의 반올림 캐시.
+    # null-duration 행은 분모/분자에서 모두 제외되어 편향이 없다.
     avg_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_sum: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     last_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

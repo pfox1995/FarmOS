@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { DayPicker, type DateRange } from 'react-day-picker';
 import 'react-day-picker/style.css';
+import { subDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { MdCalendarMonth, MdClose } from 'react-icons/md';
 
@@ -46,18 +47,14 @@ export function computePresetRange(
   since: Date;
   until: Date;
 } {
+  // date-fns subDays 는 달력일(calendar day) 단위로 빼므로 DST 전환일에도
+  // ±1 시간 오차가 없다. (KST 는 DST 미사용이지만 글로벌 안전성 차원)
   const now = new Date();
   const until = endOfDay(now);
   if (preset === 'today') return { since: startOfDay(now), until };
-  if (preset === '7d') {
-    const s = new Date(now);
-    s.setDate(s.getDate() - 6);
-    return { since: startOfDay(s), until };
-  }
+  if (preset === '7d') return { since: startOfDay(subDays(now, 6)), until };
   // 30d
-  const s = new Date(now);
-  s.setDate(s.getDate() - 29);
-  return { since: startOfDay(s), until };
+  return { since: startOfDay(subDays(now, 29)), until };
 }
 
 function fmt(d: Date | null): string {
@@ -82,8 +79,21 @@ export default function DateRangeFilter({ value, onChange, className }: Props) {
       if (!rootRef.current) return;
       if (!rootRef.current.contains(e.target as Node)) setPickerOpen(false);
     };
+    const onTouch = (e: TouchEvent) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Esc') setPickerOpen(false);
+    };
     document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
+    document.addEventListener('touchstart', onTouch);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+      document.removeEventListener('touchstart', onTouch);
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, [pickerOpen]);
 
   const selectPreset = (p: Exclude<RangePreset, 'custom'>) => {
@@ -169,6 +179,7 @@ export default function DateRangeFilter({ value, onChange, className }: Props) {
               날짜 범위 선택
             </span>
             <button
+              type="button"
               onClick={() => setPickerOpen(false)}
               className="p-1 rounded hover:bg-gray-100 text-gray-400"
               aria-label="닫기"
@@ -195,6 +206,7 @@ export default function DateRangeFilter({ value, onChange, className }: Props) {
           />
           <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t">
             <button
+              type="button"
               onClick={clearCustom}
               className="text-xs text-gray-500 hover:text-gray-700"
             >
@@ -202,12 +214,14 @@ export default function DateRangeFilter({ value, onChange, className }: Props) {
             </button>
             <div className="flex items-center gap-1.5">
               <button
+                type="button"
                 onClick={() => setPickerOpen(false)}
                 className="px-3 py-1 text-xs text-gray-600 rounded hover:bg-gray-100"
               >
                 취소
               </button>
               <button
+                type="button"
                 onClick={applyCustom}
                 disabled={!draft?.from}
                 className="px-3 py-1 text-xs text-white bg-indigo-600 rounded hover:bg-indigo-700 disabled:bg-gray-300"

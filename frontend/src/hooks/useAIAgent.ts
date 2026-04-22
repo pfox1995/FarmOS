@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   AIAgentStatus,
   AIDecision,
@@ -21,6 +21,12 @@ const POLL_INTERVAL = 60000; // SSE가 실시간 처리하므로 폴링은 60초
 export function useAIAgent() {
   const [status, setStatus] = useState<AIAgentStatus | null>(null);
   const [decisions, setDecisions] = useState<AIDecision[]>([]);
+  // stable identity 콜백(fetchDetail 등) 에서 최신 decisions 를 참조하기 위한 ref.
+  // useEffect 로 동기화되며, 이 ref 는 callback dep 에서 제외해도 항상 최신값을 본다.
+  const decisionsRef = useRef<AIDecision[]>([]);
+  useEffect(() => {
+    decisionsRef.current = decisions;
+  }, [decisions]);
   const [loading, setLoading] = useState(true);
 
   // agent-action-history 신규 상태
@@ -28,6 +34,7 @@ export function useAIAgent() {
   const [summaryRange, setSummaryRange] = useState<ActivitySummary['range']>('today');
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [nextCursorId, setNextCursorId] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [listLoading, setListLoading] = useState(false);
 
@@ -56,6 +63,7 @@ export function useAIAgent() {
         const data = (await decisionsRes.json()) as DecisionListResponse;
         setDecisions(data.items ?? []);
         setNextCursor(data.next_cursor ?? null);
+        setNextCursorId(data.next_cursor_id ?? null);
         setHasMore(Boolean(data.has_more));
       } else if (decisionsRes.status === 401) {
         // FarmOS 로그인 안된 경우 — Relay fallback 으로 최근 20건 시도 (필터 미적용)
@@ -69,6 +77,7 @@ export function useAIAgent() {
             setDecisions(Array.isArray(arr) ? arr : []);
             setHasMore(false);
             setNextCursor(null);
+            setNextCursorId(null);
           }
         } catch (e) {
           console.error('[useAIAgent] Relay fallback 실패', e);
@@ -88,6 +97,7 @@ export function useAIAgent() {
       setDateSince(since);
       setDateUntil(until);
       setNextCursor(null);
+      setNextCursorId(null);
       setHasMore(false);
       setDecisions([]);
     },
@@ -125,6 +135,7 @@ export function useAIAgent() {
       try {
         const params = new URLSearchParams({ limit: '20' });
         if (nextCursor) params.set('cursor', nextCursor);
+        if (nextCursorId) params.set('cursor_id', nextCursorId);
         if (opts?.control_type) params.set('control_type', opts.control_type);
         if (opts?.source) params.set('source', opts.source);
         if (opts?.priority) params.set('priority', opts.priority);
@@ -143,6 +154,7 @@ export function useAIAgent() {
             return [...prev, ...fresh];
           });
           setNextCursor(data.next_cursor ?? null);
+          setNextCursorId(data.next_cursor_id ?? null);
           setHasMore(Boolean(data.has_more));
         }
       } catch (e) {
@@ -151,13 +163,13 @@ export function useAIAgent() {
         setListLoading(false);
       }
     },
-    [listLoading, nextCursor, dateSince, dateUntil]
+    [listLoading, nextCursor, nextCursorId, dateSince, dateUntil]
   );
 
   // ── FarmOS /decisions/{id} (단건 상세) ────────────────────────────────────
+  // 순수 네트워크 fetcher. 404/네트워크 에러 시 즉시 null 반환 — 캐시 폴백은 호출자가
+  // decisions/decisionsRef 에서 직접 수행한다. 의존성 빈 배열로 identity 를 stable 하게 유지.
   const fetchDetail = useCallback(async (id: string): Promise<AIDecision | null> => {
-    // 먼저 메모리 캐시 확인
-    const cached = decisions.find((d) => d.id === id);
     try {
       const res = await fetch(
         `${FARMOS_API_BASE}/ai-agent/decisions/${encodeURIComponent(id)}`,
@@ -165,20 +177,18 @@ export function useAIAgent() {
       );
       if (res.ok) {
         const fresh = (await res.json()) as AIDecision;
-        // 캐시 업데이트
+        // 성공 시 메모리 캐시 갱신 (해당 id 만 머지)
         setDecisions((prev) =>
           prev.map((d) => (d.id === fresh.id ? { ...d, ...fresh } : d))
         );
         return fresh;
       }
-      if (res.status === 404) {
-        return null;
-      }
+      return null;
     } catch (e) {
-      console.error('[useAIAgent] fetchDetail 실패 — 캐시로 대체', e);
+      console.error('[useAIAgent] fetchDetail 실패', e);
+      return null;
     }
-    return cached ?? null;
-  }, [decisions]);
+  }, []);
 
   // ── 초기 로드 + 주기 폴링 ─────────────────────────────────────────────────
   useEffect(() => {

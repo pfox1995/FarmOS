@@ -80,25 +80,35 @@ async def lifespan(app: FastAPI):
     await init_db()
     await seed_users()
 
-    # AI Agent Bridge (agent-action-history) — Relay patch 적용 시 활성화
+    # AI Agent Bridge (agent-action-history) — Relay patch 적용 시 활성화.
+    # IOT_RELAY_API_KEY 가 비어 있으면 (env 미주입) 플래그가 켜져도 안전 비활성화한다.
     bridge: AiAgentBridge | None = None
     if settings.AI_AGENT_BRIDGE_ENABLED:
-        try:
-            bridge = AiAgentBridge(settings=settings, session_factory=async_session)
-            await bridge.start()
-            app.state.ai_agent_bridge = bridge
-        except Exception as exc:  # noqa: BLE001 — Bridge 실패가 BE 기동 막지 않음
+        if not settings.IOT_RELAY_API_KEY:
             logging.getLogger(__name__).warning(
-                "ai_agent_bridge.start_failed err=%s", exc
+                "ai_agent_bridge.disabled_missing_api_key "
+                "AI_AGENT_BRIDGE_ENABLED=True 이지만 IOT_RELAY_API_KEY 가 비어있음 — "
+                "환경변수/.env 로 키를 주입한 뒤 재시작하세요."
             )
+        else:
+            try:
+                bridge = AiAgentBridge(settings=settings, session_factory=async_session)
+                await bridge.start()
+                app.state.ai_agent_bridge = bridge
+            except Exception as exc:  # noqa: BLE001 — Bridge 실패가 BE 기동 막지 않음
+                logging.getLogger(__name__).warning(
+                    "ai_agent_bridge.start_failed err=%s", exc
+                )
 
     yield
 
     if bridge is not None:
         try:
             await bridge.stop()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 — 종료 실패도 BE shutdown 은 계속 진행
+            logging.getLogger(__name__).warning(
+                "ai_agent_bridge.stop_failed err=%s", exc, exc_info=True
+            )
     await close_db()
 
 

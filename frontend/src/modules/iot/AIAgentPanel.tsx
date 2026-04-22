@@ -4,7 +4,8 @@
 //  - 최근 판단 row click → AIDecisionDetailModal
 //  - 기존 "전체 N건 보기" 인라인 펼침 → "더보기(cursor pagination)" 버튼
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   MdSmartToy,
   MdAir,
@@ -174,6 +175,8 @@ export default function AIAgentPanel() {
   const [detailDecision, setDetailDecision] = useState<AIDecision | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // closeDetail 의 모달 unmount 지연 timeout id 보관 — 빠른 재호출/언마운트 시 stale setState 방지.
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openDetail = async (id: string) => {
     const cached = decisions.find((d) => d.id === id) ?? null;
@@ -188,6 +191,10 @@ export default function AIAgentPanel() {
       } else if (!cached) {
         setDetailError('해당 판단을 찾을 수 없습니다 (삭제되었거나 30일이 지났을 수 있습니다).');
       }
+    } catch (e) {
+      console.error('[AIAgentPanel] openDetail 실패', e);
+      setDetailError('판단 상세를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.');
+      toast.error('판단 상세를 불러오지 못했습니다.');
     } finally {
       setDetailLoading(false);
     }
@@ -195,16 +202,25 @@ export default function AIAgentPanel() {
 
   const closeDetail = () => {
     setDetailOpen(false);
-    // 약간의 애니메이션 여유 후 초기화
-    setTimeout(() => {
+    // 약간의 애니메이션 여유 후 초기화. 이전 예약이 살아있으면 clear 후 재예약.
+    if (closeTimeoutRef.current !== null) {
+      clearTimeout(closeTimeoutRef.current);
+    }
+    closeTimeoutRef.current = setTimeout(() => {
       setDetailDecision(null);
       setDetailError(null);
+      closeTimeoutRef.current = null;
     }, 150);
   };
 
-  // 탭 변경 시 해당 range summary 재조회
+  // 컴포넌트 언마운트 시 close 지연 timeout 정리 — stale setState 경고 방지.
   useEffect(() => {
-    // 초기 today 는 훅에서 자동 로드. 탭 변경은 onRangeChange 에서만 트리거.
+    return () => {
+      if (closeTimeoutRef.current !== null) {
+        clearTimeout(closeTimeoutRef.current);
+        closeTimeoutRef.current = null;
+      }
+    };
   }, []);
 
   if (loading) {

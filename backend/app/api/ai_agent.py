@@ -10,9 +10,10 @@ Bridge Worker (module-3) 가 Relay 의 원본을 `ai_agent_decisions` + `ai_agen
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -37,22 +38,25 @@ router = APIRouter(prefix="/ai-agent", tags=["ai-agent"])
 # ── 내부 유틸 ──────────────────────────────────────────────────────────────────
 
 
-def _range_start(range_key: SummaryRange, now: datetime) -> datetime:
-    """range 키를 시작 UTC datetime 으로 환산. today 는 오늘 00:00."""
+def _range_start(range_key: SummaryRange, now: datetime, tz: ZoneInfo) -> datetime:
+    """range 키를 시작 UTC datetime 으로 환산. tz 기준 로컬 자정을 UTC 로 변환."""
+    local_now = now.astimezone(tz)
     if range_key == "today":
-        return now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if range_key == "7d":
-        return (now - timedelta(days=6)).replace(
+        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif range_key == "7d":
+        local_start = (local_now - timedelta(days=6)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-    if range_key == "30d":
-        return (now - timedelta(days=29)).replace(
+    elif range_key == "30d":
+        local_start = (local_now - timedelta(days=29)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail={"code": "INVALID_RANGE", "message": "range must be one of today|7d|30d"},
-    )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_RANGE", "message": "range must be one of today|7d|30d"},
+        )
+    return local_start.astimezone(timezone.utc)
 
 
 def _merge_counter(dst: dict[str, int], src: Any) -> None:
@@ -75,13 +79,14 @@ def _merge_counter(dst: dict[str, int], src: Any) -> None:
     dependencies=[Depends(get_current_user)],
 )
 async def get_activity_summary(
-    range: SummaryRange = Query(default="today"),
+    range_key: SummaryRange = Query(default="today", alias="range"),
     db: AsyncSession = Depends(get_db),
 ) -> ActivitySummaryOut:
     """오늘/7일/30일 집계. ai_agent_activity_daily 에서 GROUP BY 후 후처리로 by_* 병합."""
+    tz = ZoneInfo(settings.APP_TIMEZONE)
     now = datetime.now(timezone.utc)
-    start = _range_start(range, now)
-    start_date = start.date()
+    start = _range_start(range_key, now, tz)
+    start_date = start.astimezone(tz).date()
 
     rows = (
         await db.execute(
@@ -93,8 +98,11 @@ async def get_activity_summary(
     by_control_type: dict[str, int] = {}
     by_source: dict[str, int] = {}
     by_priority: dict[str, int] = {}
-    duration_weighted_sum = 0
-    duration_weighted_count = 0
+    # 정확한 평균을 위해 duration_sum / duration_count 를 직접 누적한다.
+    # avg_duration_ms 는 행별 캐시일 뿐이고 가중치를 r.count(전체 행 수) 로 두면
+    # null-duration 행이 다시 포함되는 편향이 발생하므로 사용하지 않는다.
+    duration_total_sum = 0
+    duration_total_count = 0
     latest_at: datetime | None = None
 
     for r in rows:
@@ -102,20 +110,20 @@ async def get_activity_summary(
         by_control_type[r.control_type] = by_control_type.get(r.control_type, 0) + r.count
         _merge_counter(by_source, r.by_source)
         _merge_counter(by_priority, r.by_priority)
-        if r.avg_duration_ms is not None and r.count > 0:
-            duration_weighted_sum += r.avg_duration_ms * r.count
-            duration_weighted_count += r.count
+        if r.duration_count > 0:
+            duration_total_sum += r.duration_sum
+            duration_total_count += r.duration_count
         if r.last_at is not None and (latest_at is None or r.last_at > latest_at):
             latest_at = r.last_at
 
     avg_duration = (
-        int(duration_weighted_sum / duration_weighted_count)
-        if duration_weighted_count > 0
+        round(duration_total_sum / duration_total_count)
+        if duration_total_count > 0
         else None
     )
 
     return ActivitySummaryOut(
-        range=range,
+        range=range_key,
         total=total,
         by_control_type=by_control_type,
         by_source=by_source,
@@ -136,6 +144,11 @@ async def get_activity_summary(
 )
 async def list_decisions(
     cursor: datetime | None = Query(default=None, description="timestamp < cursor (ISO8601)"),
+    cursor_id: str | None = Query(
+        default=None,
+        max_length=36,
+        description="composite tiebreaker: id < cursor_id when timestamp = cursor",
+    ),
     limit: int = Query(default=20, ge=1, le=100),
     control_type: str | None = Query(default=None, pattern="^(ventilation|irrigation|lighting|shading)$"),
     source: str | None = Query(default=None, pattern="^(rule|llm|tool|manual)$"),
@@ -144,14 +157,25 @@ async def list_decisions(
     until: datetime | None = Query(default=None, description="timestamp <= until"),
     db: AsyncSession = Depends(get_db),
 ) -> DecisionListOut:
-    """최신순 cursor pagination. limit+1 을 fetch 해 has_more 판정.
+    """최신순 (timestamp, id) 복합 keyset pagination. limit+1 을 fetch 해 has_more 판정.
 
-    정렬·cursor·필터 모두 timestamp(이벤트 시각) 기준으로 통일하여
-    since/until 필터와 페이지 경계의 컬럼 불일치로 인한 경계 행 유실을 방지.
+    정렬·cursor·필터 모두 timestamp(이벤트 시각) + id 기준으로 통일하여
+    동일 timestamp 다중 행에서의 누락/중복을 방지한다.
     """
     conds = []
     if cursor is not None:
-        conds.append(AiAgentDecision.timestamp < cursor)
+        if cursor_id is not None:
+            conds.append(
+                or_(
+                    AiAgentDecision.timestamp < cursor,
+                    and_(
+                        AiAgentDecision.timestamp == cursor,
+                        AiAgentDecision.id < cursor_id,
+                    ),
+                )
+            )
+        else:
+            conds.append(AiAgentDecision.timestamp < cursor)
     if control_type is not None:
         conds.append(AiAgentDecision.control_type == control_type)
     if source is not None:
@@ -166,17 +190,21 @@ async def list_decisions(
     stmt = select(AiAgentDecision)
     if conds:
         stmt = stmt.where(and_(*conds))
-    stmt = stmt.order_by(AiAgentDecision.timestamp.desc()).limit(limit + 1)
+    stmt = stmt.order_by(
+        AiAgentDecision.timestamp.desc(), AiAgentDecision.id.desc()
+    ).limit(limit + 1)
 
     rows = (await db.execute(stmt)).scalars().all()
 
     has_more = len(rows) > limit
     items = rows[:limit]
     next_cursor = items[-1].timestamp if has_more and items else None
+    next_cursor_id = items[-1].id if has_more and items else None
 
     return DecisionListOut(
         items=[AIDecisionOut.model_validate(r) for r in items],
         next_cursor=next_cursor,
+        next_cursor_id=next_cursor_id,
         has_more=has_more,
     )
 

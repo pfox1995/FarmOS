@@ -528,10 +528,11 @@ export interface ActivitySummary {
   generated_at: string;
 }
 
-// Design Ref §4.2 — 목록 + cursor pagination 응답
+// Design Ref §4.2 — 목록 + (timestamp, id) 복합 keyset pagination 응답
 export interface DecisionListResponse {
   items: AIDecision[];
   next_cursor: string | null;
+  next_cursor_id: string | null;
   has_more: boolean;
 }
 

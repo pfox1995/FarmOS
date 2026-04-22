@@ -183,8 +183,12 @@ export default function AIDecisionDetailModal({
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
-    setTimeout(() => closeBtnRef.current?.focus(), 10);
-    return () => document.removeEventListener('keydown', onKey);
+    // close 버튼 자동 포커스 — 빠른 close/재open 시 stale focus 방지를 위해 cleanup 에서 clear.
+    const timerId = setTimeout(() => closeBtnRef.current?.focus(), 10);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      clearTimeout(timerId);
+    };
   }, [open, onClose]);
 
   if (!open) return null;
