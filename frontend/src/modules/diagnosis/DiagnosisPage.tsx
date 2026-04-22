@@ -212,14 +212,20 @@ export default function DiagnosisPage() {
       });
 
       if (!res.ok) {
-        throw new Error('Save failed');
+        throw new Error('서버 응답 오류가 발생했습니다.');
       }
 
-      const savedData = await res.json();
-      await fetchHistory();
+      const responseData = await res.json();
+      const savedData = responseData.data || responseData;
+
+      if (!savedData || !savedData.id) {
+        throw new Error('진단 데이터를 생성하지 못했습니다.');
+      }
+
+      // 목록을 갱신하되, 이동을 차단하지 않도록 비동기로 처리하거나 생략 가능 (채팅에서 돌아올 때 다시 부름)
+      fetchHistory();
       
-      // savedData가 객체인지, 내부에 data 필드를 주는지 상황에 맞추어 넘겨줍니다.
-      navigate('/diagnosis/chat', { state: { diagnosisContext: savedData.data || savedData } });
+      navigate('/diagnosis/chat', { state: { diagnosisContext: savedData } });
       
     } catch (err: any) {
       if (err.name === 'AbortError') {
@@ -227,11 +233,14 @@ export default function DiagnosisPage() {
         return;
       }
       console.error("Save error:", err);
-      navigate('/diagnosis/chat', { state: { diagnosisContext: payload } });
+      toast.error(err.message || 'AI 진단 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+      setIsAnalyzing(false);
     } finally {
       // 최신 요청의 종료에서만 로딩 상태를 내린다.
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
+        // 성공 시에는 navigate로 인해 컴포넌트가 언마운트되므로 
+        // finally에서 명시적으로 false 처리를 하지 않아도 무방하나 안전을 위해 에러 시에만 수행하도록 catch로 이동하거나 유지
         setIsAnalyzing(false);
       }
     }

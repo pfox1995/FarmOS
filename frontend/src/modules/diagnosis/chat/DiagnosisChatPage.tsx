@@ -156,6 +156,7 @@ export default function DiagnosisChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // API 호출 베이스 경로
   const API_BASE = 'http://localhost:8000/api/v1/diagnosis';
@@ -167,6 +168,7 @@ export default function DiagnosisChatPage() {
   // DB에서 채팅 내역 불러오기
   const fetchChatMessages = async () => {
     if (!context?.id) return;
+    setIsLoading(true);
     try {
       const response = await fetch(`${API_BASE}/history/${context.id}/chat`, {
         credentials: 'include'
@@ -186,6 +188,8 @@ export default function DiagnosisChatPage() {
       }
     } catch (err) {
       console.error("채팅 내역 조회 실패:", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -297,6 +301,28 @@ export default function DiagnosisChatPage() {
       {/* Chat Area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/30">
         <AnimatePresence>
+          {isLoading && messages.length === 0 && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              className="flex flex-col items-center justify-center h-full space-y-4 py-20"
+            >
+              <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+              <p className="text-sm text-gray-500 font-medium">대화 내용을 불러오는 중입니다...</p>
+            </motion.div>
+          )}
+          
+          {!isLoading && messages.length === 0 && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              className="flex flex-col items-center justify-center h-full space-y-3 py-20 opacity-60"
+            >
+              <MdSmartToy className="text-5xl text-gray-300" />
+              <p className="text-sm text-gray-400">대화 내용이 없습니다.</p>
+            </motion.div>
+          )}
+
           {messages.map((msg) => (
             <motion.div
               key={msg.id}
