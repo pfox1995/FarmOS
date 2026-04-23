@@ -198,11 +198,11 @@ async def add_chat_message(
         hist_res = await db.execute(hist_query)
         db_msgs = hist_res.scalars().all()
         
-        api_key = settings.OPENROUTER_API_KEY
-        model_name = settings.OPENROUTER_PEST_RAG_MODEL
+        api_key = settings.LITELLM_API_KEY
+        model_name = settings.LITELLM_MODEL
 
         ai_reply = "API 키가 없어 답변할 수 없습니다."
-        if api_key and api_key != "dummy":
+        if api_key:
             try:
                 # async with 블록을 사용하여 커넥션 누수 방지
                 async with httpx.AsyncClient(
@@ -213,7 +213,7 @@ async def add_chat_message(
                     llm = ChatOpenAI(
                         model=model_name,
                         api_key=api_key,
-                        base_url=settings.OPENROUTER_URL,
+                        base_url=settings.LITELLM_URL,
                         temperature=0.0,
                         http_async_client=custom_async_client,
                         model_kwargs={

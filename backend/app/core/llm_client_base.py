@@ -1,7 +1,7 @@
 """LLM 클라이언트 추상화 모듈.
 
 # Design Ref: §3.1 — LLM 추상화 클라이언트
-# Plan SC: SC-04 (LLM 추상화로 Ollama↔OpenRouter 전환 가능)
+# Plan SC: SC-04 (LLM 추상화로 Ollama↔LiteLLM 전환 가능)
 
 학습 포인트:
 - ABC(Abstract Base Class): 공통 인터페이스를 정의하는 파이썬 패턴.
@@ -40,7 +40,7 @@ class BaseLLMClient(ABC):
         자식 클래스가 반드시 해당 메서드를 구현해야 합니다.
 
         왜 이렇게 하나?
-        → OllamaClient든 OpenRouterClient든 동일한 .generate()로 호출 가능.
+        → OllamaClient든 LiteLLMClient든 동일한 .generate()로 호출 가능.
         → 호출하는 쪽(review_analyzer.py)은 어떤 LLM인지 몰라도 됩니다.
     """
 
@@ -156,34 +156,35 @@ class OllamaClient(BaseLLMClient):
 
 
 # ---------------------------------------------------------------------------
-# OpenRouter 클라이언트 (클라우드)
+# LiteLLM 클라이언트 (클라우드 프록시)
 # ---------------------------------------------------------------------------
 
-class OpenRouterClient(BaseLLMClient):
-    """OpenRouter 클라우드 LLM 클라이언트.
+class LiteLLMClient(BaseLLMClient):
+    """LiteLLM 프록시 기반 LLM 클라이언트.
 
     학습 포인트:
-        OpenRouter는 다양한 LLM 모델을 하나의 API로 접근할 수 있는 서비스입니다.
+        LiteLLM은 다양한 LLM 모델을 하나의 API로 접근할 수 있는 서비스입니다.
         OpenAI 호환 API 형식을 사용하므로, /chat/completions 엔드포인트를 씁니다.
 
         비용: API 호출당 과금 (모델마다 다름)
-        설정: .env에 OPENROUTER_API_KEY 필요
+        설정: .env에 LITELLM_API_KEY 필요
     """
 
     def __init__(
         self,
         api_key: str | None = None,
         model: str | None = None,
+        base_url: str | None = None,
     ):
-        self.api_key = api_key or settings.OPENROUTER_API_KEY
-        self.model = model or settings.OPENROUTER_MODEL
-        self.base_url = settings.OPENROUTER_URL
+        self.api_key = api_key or settings.LITELLM_API_KEY
+        self.model = model or settings.LITELLM_MODEL
+        self.base_url = base_url or settings.LITELLM_URL
 
     async def generate(self, prompt: str, system: str = "") -> str:
-        """OpenRouter chat/completions 엔드포인트 호출.
+        """LiteLLM chat/completions 엔드포인트 호출.
 
         학습 포인트:
-            OpenRouter는 OpenAI 호환 API를 사용합니다.
+            LiteLLM은 OpenAI 호환 API를 사용합니다.
             generate()도 내부적으로 chat/completions를 호출하되,
             messages 형식으로 변환합니다.
         """
@@ -195,7 +196,7 @@ class OpenRouterClient(BaseLLMClient):
         return await self.chat(messages)
 
     async def chat(self, messages: list[dict]) -> str:
-        """OpenRouter chat/completions 엔드포인트 호출.
+        """LiteLLM chat/completions 엔드포인트 호출.
 
         학습 포인트:
             GPT-5 계열 등 리즈닝 모델은 기본적으로 내부 추론 토큰을 많이 소비합니다.
@@ -208,8 +209,8 @@ class OpenRouterClient(BaseLLMClient):
         """
         if not self.api_key:
             raise ValueError(
-                "OPENROUTER_API_KEY가 설정되지 않았습니다. "
-                ".env 파일에 OPENROUTER_API_KEY=sk-or-xxx를 추가하세요."
+                "LITELLM_API_KEY가 설정되지 않았습니다. "
+                ".env 파일에 LITELLM_API_KEY=sk-...를 추가하세요."
             )
 
         payload: dict = {
@@ -234,10 +235,10 @@ class OpenRouterClient(BaseLLMClient):
                 data = resp.json()
                 return data["choices"][0]["message"]["content"]
         except httpx.HTTPStatusError as e:
-            logger.error(f"OpenRouter API 오류 ({e.response.status_code}): {e.response.text}")
+            logger.error(f"LiteLLM API 오류 ({e.response.status_code}): {e.response.text}")
             raise
         except Exception as e:
-            logger.error(f"OpenRouter chat 실패: {e}")
+            logger.error(f"LiteLLM chat 실패: {e}")
             raise
 
 
@@ -281,7 +282,7 @@ def get_llm_client() -> BaseLLMClient:
 
     .env 설정 예시:
         LLM_PROVIDER=ollama          → 로컬 Ollama (개발용, 비용 0원)
-        LLM_PROVIDER=openrouter      → OpenRouter 클라우드 (배포 A)
+        LLM_PROVIDER=litellm         → LiteLLM 클라우드 프록시 (배포 A)
         LLM_PROVIDER=ollama_remote   → 원격 Ollama/RunPod (배포 B)
 
     Returns:
@@ -289,9 +290,9 @@ def get_llm_client() -> BaseLLMClient:
     """
     provider = settings.LLM_PROVIDER.lower()
 
-    if provider == "openrouter":
-        logger.info(f"LLM Provider: OpenRouter (model={settings.OPENROUTER_MODEL})")
-        return OpenRouterClient()
+    if provider == "litellm" or provider == "openrouter":
+        logger.info(f"LLM Provider: LiteLLM (model={settings.LITELLM_MODEL})")
+        return LiteLLMClient()
     elif provider == "ollama_remote":
         logger.info(f"LLM Provider: Remote Ollama (url={settings.OLLAMA_REMOTE_URL})")
         return RemoteOllamaClient()

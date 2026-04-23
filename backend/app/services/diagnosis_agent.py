@@ -295,9 +295,7 @@ async def fetch_weather(state: DiagnosisState) -> dict:
 
     api_candidates: list[str] = []
     for candidate in [
-        settings.WEATHER_API_KEY,
-        settings.KMA_DECODING_KEY,
-        settings.KMA_ENCODING_KEY,
+        settings.KMA_DECODING_KEY
     ]:
         normalized = (candidate or "").strip()
         if normalized and normalized not in api_candidates:
@@ -485,18 +483,12 @@ async def fetch_pesticide(state: DiagnosisState) -> dict:
 
 async def generate_diagnosis(state: DiagnosisState) -> dict:
     from app.core.config import settings
-    api_key, model_name = settings.OPENROUTER_API_KEY, settings.OPENROUTER_PEST_RAG_MODEL
-    if not api_key or api_key == "dummy": return {"analysis_result": {"result_text": "API 키 오류"}}
+    api_key, model_name = settings.LITELLM_API_KEY, settings.LITELLM_MODEL
+    if not api_key: return {"analysis_result": {"result_text": "API 키 오류"}}
 
     try:
         # async with 블록으로 감싸서 리소스 누수 방지 (CoderrabitAI 리뷰 반영)
         async with httpx.AsyncClient(http1=True, http2=False, timeout=httpx.Timeout(180.0, connect=20.0)) as custom_async_client:
-            llm = ChatOpenAI(
-                model=model_name, api_key=api_key, base_url=settings.OPENROUTER_URL, temperature=0.0,
-                http_async_client=custom_async_client,
-                model_kwargs={"extra_body": {"reasoning": {"effort": "minimal", "exclude": True}}}
-            )
-
             weather_info = state.get("weather_data", {})
             weather_summary, weather_for_llm = _build_weather_unavailable_card("기상 데이터 없음"), "데이터 없음"
             daily = weather_info.get("daily_forecast") if isinstance(weather_info, dict) else None
@@ -550,10 +542,31 @@ async def generate_diagnosis(state: DiagnosisState) -> dict:
             json_payload = {"region": display_region, "crop_display": crop_display, "pest": pest_name, "weather_for_llm": weather_for_llm, "preventive_info": state.get("ncpms_data") or "데이터 없음", "pesticide_summary_text": _summarize_pesticides_for_prompt(grouped_results)}
             
             prompt = ChatPromptTemplate.from_messages([
-                ("system", "당신은 'FarmOS 해충 진단봇'이며 전문 진단 요약을 생성하는 농업 전문가입니다. 반드시 JSON만 출력하라.\n출력 형식:\n{{\n  \"weather_advice\": \"...\",\n  \"strategy_bullets\": [\"...\", \"...\", \"...\"]\n}}"),
+                ("system", (
+                    "당신은 'FarmOS 해충 진단봇'이며, 농민에게 정확하고 현실적인 조언을 제공하는 전문 농업 컨설턴트입니다.\n"
+                    "당신의 답변은 반드시 제공된 내부 데이터(날씨, 병해충 정보, 농약 DB)에 근거하여 전문 진단 요약을 작성하십시오.\n"
+                    "최종 응답은 반드시 지정된 JSON 형식으로만 출력하십시오.\n\n"
+                    "출력 형식:\n"
+                    "{{\n"
+                    "  \"weather_advice\": \"...\",\n"
+                    "  \"strategy_bullets\": [\"...\", \"...\", \"...\"]\n"
+                    "}}"
+                )),
                 ("user", "{json_text}")
             ])
-            chain = prompt | llm | StrOutputParser()
+            
+            # 최초 진단 생성 시에는 검증된 내부 DB 위주로 빠르게 답변 (웹 검색 제외)
+            llm_standard = ChatOpenAI(
+                model=model_name, api_key=api_key, base_url=settings.LITELLM_URL, temperature=0.0,
+                http_async_client=custom_async_client,
+                model_kwargs={
+                    "extra_body": {
+                        "reasoning": {"effort": "minimal", "exclude": True}
+                    }
+                }
+            )
+
+            chain = prompt | llm_standard | StrOutputParser()
             raw_res = await chain.ainvoke({"json_text": json.dumps(json_payload, ensure_ascii=False)})
             
             notes = _extract_json_object(raw_res) or {}

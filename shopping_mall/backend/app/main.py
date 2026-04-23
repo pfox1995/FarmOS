@@ -38,6 +38,7 @@ _setup_app_logging()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import settings
 from app.database import Base, engine
 from app.routers import products, categories, cart, orders, users, reviews, stores, wishlists
 from app.routers import shipments, calendar, reports, analytics, chatbot, admin
@@ -126,7 +127,7 @@ app = FastAPI(title="Shopping Mall API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175"],
+    allow_origins=settings.allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

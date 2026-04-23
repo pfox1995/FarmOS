@@ -4,11 +4,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.schemas.user import UserResponse
+from app.core.config import settings
 from app.farmos_auth import get_farmos_user_optional, FarmOSUser
 
 router = APIRouter(prefix="/api/users", tags=["users"])
-
-FARMOS_API = "http://localhost:8000/api/v1"
 
 
 def _resolve_user(request: Request, db: Session) -> tuple[User | None, FarmOSUser | None]:
@@ -53,7 +52,7 @@ def auth_status(request: Request, db: Session = Depends(get_db)):
     # FarmOS 백엔드에 직접 검증 요청
     try:
         res = httpx.get(
-            f"{FARMOS_API}/auth/me",
+            f"{settings.farmos_api_url}/auth/me",
             cookies={"farmos_token": token},
             timeout=3.0,
         )

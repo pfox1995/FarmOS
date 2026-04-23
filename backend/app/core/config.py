@@ -9,102 +9,108 @@ _BUNDLED_FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "FarmOS Backend"
-    API_V1_PREFIX: str = "/api/v1"
+    # ── 기본 설정 ──────────────────────────────────────────────────────────
+    PROJECT_NAME: str = ""
+    API_V1_PREFIX: str = ""
+    APP_TIMEZONE: str = ""
 
-    # Database (PostgreSQL)
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/farmos"
+    # ── 데이터베이스 ────────────────────────────────────────────────────────
+    # 데이터베이스 (PostgreSQL)
+    DATABASE_URL: str = ""
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 1800
 
-    # CORS
-    CORS_ORIGINS: list[str] = [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:3000",
-        "http://iot.lilpa.moe"
-    ]
+    # 벡터 데이터베이스 (ChromaDB)
+    CHROMA_DB_PATH: str = ""
 
-    # ChromaDB (벡터 데이터베이스)
-    CHROMA_DB_PATH: str = "./chroma_data"
-
-    # JWT
+    # ── 보안 및 인증 ────────────────────────────────────────────────────────
+    # JWT 시크릿 키 (FarmOS-ShoppingMall 공유 인증)
     JWT_SECRET_KEY: str = ""
 
-    # KMA (기상청 API)
-    KMA_ENCODING_KEY: str = ""
+    # CORS 허용 도메인 (JSON 배열 형식)
+    # 프론트엔드 → 백엔드 API 호출 허용
+    CORS_ORIGINS: list[str] = []
+
+    # ── 외부 API (공공데이터/지도) ──────────────────────────────────────────
+    # 기상청 API (단기예보 등)
+    # 기상청 단기예보 서비스 (지역 날씨 오케스트레이션용)
     KMA_DECODING_KEY: str = ""
 
-    # KAMIS (농산물유통정보 API)
+    # 국가농작물병해충관리시스템 (NCPMS)
+    NCPMS_API_KEY: str = ""
+
+    # 농약안전정보시스템 
+    PESTICIDE_API_KEY: str = ""
+
+    # 식품안전나라
+    # 식품의약품안전처 공공데이터활용 — 농약 등록정보(I1910) 조회에 사용
+    # 회원가입 후 Open-API 이용신청 → 인증키 발급
+    FOOD_SAFETY_API_KEY: str = ""
+
+    # 농산물유통정보 (KAMIS)
     KAMIS_API_KEY: str = ""
     KAMIS_CERT_ID: str = ""
 
-    # OpenRouter (LLM API) — 진단/일지/공통 LLM 클라이언트에서 사용
-    # NOTE: LiteLLM 프록시에 등록된 모델명을 그대로 사용해야 함 (접두사 없이)
-    OPENROUTER_API_KEY: str = ""
-    OPENROUTER_URL: str = "https://litellm.lilpa.moe/v1"
-    OPENROUTER_MODEL: str = "gpt-5-nano"
-    OPENROUTER_PEST_RAG_MODEL: str = "gpt-5-nano"
-
-    # LiteLLM 프록시 — 리뷰 자동화(임베딩) 전용 네이밍 (실제 호스트는 OPENROUTER_URL 과 동일 가능)
-    LITELLM_API_KEY: str = ""
-    LITELLM_URL: str = "https://litellm.lilpa.moe/v1"
-    LITELLM_MODEL: str = "gpt-5-nano"
-
-    # 외부 데이터 API (기상청, NCPMS, 농약안전정보시스템, 카카오)
-    WEATHER_API_KEY: str = ""
-    NCPMS_API_KEY: str = ""
-    PESTICIDE_API_KEY: str = ""
+    # 카카오 REST API (위도 및 경도 변환)
     KAKAO_REST_API_KEY: str = ""
 
+    # ── LLM & AI 서비스 ──────────────────────────────────────────────────────
+    # LiteLLM 프록시 / OpenRouter
+    # LiteLLM 사용 모델 목록 -> gpt-5-nano, gpt-5-mini, gpt-oss-20b, gemma-4-31b-it
+    LITELLM_API_KEY: str = ""
+    LITELLM_URL: str = ""
+    LITELLM_MODEL: str = ""
+
     # Groq (Whisper STT)
+    # 영농일지 서버사이드 음성 전사(STT)에 사용
     GROQ_API_KEY: str = ""
-    GROQ_STT_URL: str = "https://api.groq.com/openai/v1/audio/transcriptions"
-    GROQ_STT_MODEL: str = "whisper-large-v3"
+    GROQ_STT_URL: str = ""
+    GROQ_STT_MODEL: str = ""
 
-    # 식품안전나라 Open API (농약 DB)
-    FOOD_SAFETY_API_KEY: str = ""
+    # 리뷰 분석 및 기타 LLM 설정
+    LLM_PROVIDER: str = ""
+    LLM_MODEL: str = ""
+    OLLAMA_BASE_URL: str = ""
+    OLLAMA_REMOTE_URL: str = ""
 
-    # LLM Provider (리뷰 분석용)
-    LLM_PROVIDER: str = "openrouter"  # ollama | openrouter | ollama_remote
-    LLM_MODEL: str = "llama3.1:8b"
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_REMOTE_URL: str = ""  # RunPod 등 원격 Ollama URL
-
-    # Review Embedding (LiteLLM 프록시 경유, VoyageAI 등)
-    EMBED_MODEL: str = "voyage-3.5"
+    EMBED_MODEL: str = ""
     EMBED_DIM: int = 1024
 
     # LLM 리즈닝 강도 (GPT-5 계열 reasoning 모델용)
     # minimal | low | medium | high  또는 "none"(파라미터 미전송)
     # non-reasoning 모델(gemma, gpt-oss 등)은 무시됨
-    LLM_REASONING_EFFORT: str = "minimal"
+    LLM_REASONING_EFFORT: str = ""
 
-    # Review Analysis
+    # Review Embedding (LiteLLM 프록시 경유, VoyageAI 등)
     REVIEW_ANALYSIS_BATCH_SIZE: int = 40
     REVIEW_ANALYSIS_MAX_RETRIES: int = 2
 
-    # 앱 타임존 (집계 일/시간 버킷의 로컬 기준)
-    APP_TIMEZONE: str = "Asia/Seoul"
+    # ── AI Agent (IoT 제어) ──────────────────────────────────────────────────
+    AI_AGENT_MODEL: str = ""
+    AI_AGENT_LLM_INTERVAL: int = 300
+    AI_AGENT_RULE_INTERVAL: int = 30
 
-    # AI Agent (IoT 자동 제어)
-    AI_AGENT_MODEL: str = "openai/gpt-5-mini"
-    AI_AGENT_LLM_INTERVAL: int = 300  # LLM 호출 최소 간격 (초)
-    AI_AGENT_RULE_INTERVAL: int = 30  # 규칙 판단 간격 (초)
-
+    # IoT Relay Server Bridge
     # AI Agent Action History Bridge (Relay → FarmOS 미러)
-    IOT_RELAY_BASE_URL: str = "http://localhost:9000"
+    # Relay 와 공유하는 시크릿. 비워두면 AI_AGENT_BRIDGE_ENABLED=true 라도 안전 비활성화된다.
+    # 운영 환경에서는 절대 코드에 하드코딩하지 말고 반드시 환경변수/.env 로만 주입한다.
     # 실제 키는 반드시 .env / 환경변수(IOT_RELAY_API_KEY) 로 주입한다.
     # 빈 문자열이면 AI_AGENT_BRIDGE_ENABLED=True 라도 Bridge 는 안전하게 비활성화된다.
+    IOT_RELAY_BASE_URL: str = ""
     IOT_RELAY_API_KEY: str = ""
-    AI_AGENT_BRIDGE_ENABLED: bool = False  # Relay 패치 적용 전 기본 off
+    AI_AGENT_BRIDGE_ENABLED: bool = False
     AI_AGENT_MIRROR_TTL_DAYS: int = 30
     AI_AGENT_BACKFILL_PAGE_SIZE: int = 200
 
-    # 농장 위치 (기상청 격자좌표)
-    FARM_NX: int = 84   # 경북 상주 기준
+    # 센서 임계값
+    SOIL_MOISTURE_LOW: float = 55.0
+    SOIL_MOISTURE_HIGH: float = 70.0
+
+    # ── 기타 설정 ────────────────────────────────────────────────────────────
+    # 농장 위치 (기상청 격자좌표 기본값)
+    FARM_NX: int = 84
     FARM_NY: int = 106
 
     # 한글 폰트 (PDF 생성용) — 저장소에 번들된 Pretendard(SIL OFL 1.1) 기본 사용.

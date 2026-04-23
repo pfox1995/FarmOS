@@ -266,10 +266,10 @@ async def _generate_summary_llm(
         import httpx
         from app.core.config import settings
 
-        url = f"{settings.OPENROUTER_URL}/chat/completions"
-        headers = {"Authorization": f"Bearer {settings.OPENROUTER_API_KEY}"}
+        url = f"{settings.LITELLM_URL}/chat/completions"
+        headers = {"Authorization": f"Bearer {settings.LITELLM_API_KEY}"}
         payload = {
-            "model": settings.OPENROUTER_MODEL,
+            "model": settings.LITELLM_MODEL,
             "messages": [
                 {
                     "role": "system",

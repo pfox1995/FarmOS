@@ -162,10 +162,10 @@ async def parse_stt_text(raw_text: str) -> dict:
     Returns:
         {"parsed": {...}, "confidence": {...}, "unparsed_text": "..."}
     """
-    url = f"{settings.OPENROUTER_URL}/chat/completions"
-    headers = {"Authorization": f"Bearer {settings.OPENROUTER_API_KEY}"}
+    url = f"{settings.LITELLM_URL}/chat/completions"
+    headers = {"Authorization": f"Bearer {settings.LITELLM_API_KEY}"}
     payload = {
-        "model": settings.OPENROUTER_MODEL,
+        "model": settings.LITELLM_MODEL,
         "messages": [
             {"role": "system", "content": _build_system_prompt()},
             {"role": "user", "content": raw_text},
