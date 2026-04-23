@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams, useParams as useReactRouterParams 
 import { motion, AnimatePresence } from 'framer-motion';
 import { MdSend, MdArrowBack, MdRefresh, MdSmartToy, MdPerson } from 'react-icons/md';
 import toast from 'react-hot-toast';
+import DOMPurify from 'dompurify';
 
 interface Message {
   id: string;
@@ -15,16 +16,9 @@ interface Message {
 // 마크다운 렌더러 컴포넌트 (개선된 파서)
 function MarkdownRenderer({ content }: { content: string }) {
   const parseMarkdown = (text: string): string => {
-    const escapeHtml = (value: string): string =>
-      value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-
+    // DOMPurify가 소독을 담당하므로 수동 이스케이프를 제거하여 백엔드 HTML 태그 보존
     const formatInline = (value: string): string =>
-      escapeHtml(value).replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+      value.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
 
     const normalizeLegacyPlaceholders = (value: string): string =>
       value
@@ -45,7 +39,6 @@ function MarkdownRenderer({ content }: { content: string }) {
     const lines = processedText.split('\n');
     const result: string[] = [];
     let inList = false;
-    let inNestedList = false;
     let nestedLevel = 0; // 0: none, 1: '  -', 2: '    -'
     
     let inTable = false;
@@ -136,7 +129,7 @@ function MarkdownRenderer({ content }: { content: string }) {
         while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
         if (inList) { result.push('</ul>'); inList = false; }
         const content = line.replace(/^##\s+/, '').trim();
-        result.push(`<h2 class="text-lg font-bold text-gray-800 mt-6 mb-3">${escapeHtml(content)}</h2>`);
+        result.push(`<h2 class="text-lg font-bold text-gray-800 mt-6 mb-3">${formatInline(content)}</h2>`);
         continue;
       }
 
@@ -144,7 +137,7 @@ function MarkdownRenderer({ content }: { content: string }) {
         while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
         if (inList) { result.push('</ul>'); inList = false; }
         const content = line.replace(/^###\s+/, '').trim();
-        result.push(`<h3 class="text-base font-semibold text-gray-700 mt-4 mb-2">${escapeHtml(content)}</h3>`);
+        result.push(`<h3 class="text-base font-semibold text-gray-700 mt-4 mb-2">${formatInline(content)}</h3>`);
         continue;
       }
 
@@ -195,7 +188,16 @@ function MarkdownRenderer({ content }: { content: string }) {
         continue;
       }
 
-      // 일반 텍스트 (기존 HTML 허용 경로 제거 - XSS 방지)
+      // 백엔드에서 생성된 HTML 태그 (CSS 카드 형태 등) 허용하되 나중에 DOMPurify로 소독
+      if (line.trim().startsWith('<')) {
+        while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
+        if (inList) { result.push('</ul>'); inList = false; }
+        // 태그 내부는 포맷팅하지 않고 그대로 전달 (나중에 소독됨)
+        result.push(line);
+        continue;
+      }
+
+      // 일반 텍스트
       if (line.trim()) {
         while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
         if (inList) { result.push('</ul>'); inList = false; }
@@ -213,7 +215,15 @@ function MarkdownRenderer({ content }: { content: string }) {
     while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
     if (inList) result.push('</ul>');
 
-    return result.join('');
+    const combinedHtml = result.join('');
+    // DOMPurify로 최종 소독하여 XSS 방지하면서 의도된 태그/스타일은 유지
+    return DOMPurify.sanitize(combinedHtml, {
+      ALLOWED_TAGS: [
+        'div', 'span', 'p', 'br', 'blockquote', 'strong', 'b', 'ul', 'li', 'h2', 'h3',
+        'table', 'thead', 'tbody', 'tr', 'th', 'td'
+      ],
+      ALLOWED_ATTR: ['class', 'style', 'title']
+    });
   };
 
   return (
