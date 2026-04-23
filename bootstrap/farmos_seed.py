@@ -44,9 +44,11 @@ if str(BACKEND_DIR) not in sys.path:
 # Base.metadata 등록을 위해 모델 모듈을 명시적으로 import 한다.
 import app.models.journal  # noqa: F401
 import app.models.review_analysis  # noqa: F401
+from app.core.config import settings
 from app.core.database import async_session, close_db, init_db
 from app.core.security import hash_password
 from app.models.user import User
+from ncpms_seed import NCPMS_JSON_PATH, run_ncpms_seed
 
 # ======================
 # 수정이 쉬운 상단 설정값
@@ -80,6 +82,7 @@ CORE_SUMMARY_TABLES = [
     "review_analyses",
     "review_sentiments",
     "users",
+    "ncpms_diagnoses",
 ]
 POST_PESTICIDE_TABLES = [
     "rag_pesticide_crops",
@@ -135,6 +138,12 @@ async def run() -> int:
     await init_db()
     await seed_users()
     print()
+    
+    # NCPMS JSON 적재
+    raw_db_url = os.environ.get("DATABASE_URL", str(settings.DATABASE_URL))
+    db_conf = parse_database_url(raw_db_url)
+    await run_ncpms_seed(db_conf)
+    
     await print_summary()
     await close_db()
     print()
@@ -215,8 +224,14 @@ def is_farmos_ready(db_conf: dict[str, str]) -> bool:
         actual = int(psql_query(db_conf, f"SELECT COUNT(*) FROM {table};") or "0")
         if actual < expected:
             return False
-    return True
 
+    # NCPMS JSON이 준비된 환경에서만 최소 row 수를 강제한다.
+    if NCPMS_JSON_PATH.exists():
+        actual = int(psql_query(db_conf, "SELECT COUNT(*) FROM ncpms_diagnoses;") or "0")
+        if actual < 1:
+            return False
+
+    return True
 
 def run_seed_pipeline(raw_db_url: str) -> None:
     info("FarmOS 코어 시드 실행")
@@ -231,7 +246,7 @@ def run_seed_pipeline(raw_db_url: str) -> None:
 def run_pesticide_loader(raw_db_url: str, append_mode: bool = True) -> None:
     info("농약 RAG 테이블 적재 스크립트 실행")
     loader_script = ROOT / "bootstrap" / "pesticide.py"
-    json_dir = ROOT / "tools" / "api-crawler" / "json_raw"
+    json_dir = ROOT / "tools" / "pesticide-api-crawler" / "json_raw"
     command = [
         "--db-url",
         raw_db_url,

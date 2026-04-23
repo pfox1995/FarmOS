@@ -46,10 +46,11 @@ class Settings(BaseSettings):
     LITELLM_URL: str = "https://litellm.lilpa.moe/v1"
     LITELLM_MODEL: str = "gpt-5-nano"
 
-    # 외부 데이터 API (기상청, NCPMS, 농약안전정보시스템)
+    # 외부 데이터 API (기상청, NCPMS, 농약안전정보시스템, 카카오)
     WEATHER_API_KEY: str = ""
     NCPMS_API_KEY: str = ""
     PESTICIDE_API_KEY: str = ""
+    KAKAO_REST_API_KEY: str = ""
 
     # Groq (Whisper STT)
     GROQ_API_KEY: str = ""

@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
 import { CROP_OPTIONS, FARMLAND_TYPES, FARMER_TYPES, safeAreaConvert } from '@/constants/farming';
+import DaumPostcode from 'react-daum-postcode';
+import { MdSearch } from 'react-icons/md';
+import { formatDaumAddress, type DaumPostcodeData } from '@/utils/daumAddress';
 
 const API_BASE = 'http://localhost:8000/api/v1';
 
@@ -30,6 +33,31 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+
+  const [isPostcodeOpen, setIsPostcodeOpen] = useState(false);
+  const postcodeCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const handleCompletePostcode = (data: DaumPostcodeData) => {
+    setDraft(d => d ? { ...d, location: formatDaumAddress(data) } : d);
+    setIsPostcodeOpen(false);
+  };
+
+  useEffect(() => {
+    if (isPostcodeOpen) {
+      postcodeCloseButtonRef.current?.focus();
+    }
+  }, [isPostcodeOpen]);
+
+  useEffect(() => {
+    if (!isPostcodeOpen) return;
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsPostcodeOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isPostcodeOpen]);
 
   // 서버에서 전체 프로필 로드 (10초 타임아웃 + 재시도)
   useEffect(() => {
@@ -191,7 +219,32 @@ export default function ProfilePage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">주소</label>
-              <input type="text" value={draft.location} onChange={e => setDraft(d => d ? { ...d, location: e.target.value } : d)} placeholder="주소 입력" className={inputClass} />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  placeholder="주소를 검색하세요"
+                  value={draft.location}
+                  onClick={() => setIsPostcodeOpen(true)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setIsPostcodeOpen(true);
+                    }
+                  }}
+                  tabIndex={0}
+                  className={`${inputClass} cursor-pointer`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsPostcodeOpen(true)}
+                  className="flex-shrink-0 bg-primary text-white p-3 rounded-xl font-bold flex items-center justify-center shadow hover:bg-primary/90 transition-colors"
+                  title="주소 찾기"
+                  aria-label="주소 찾기"
+                >
+                  <MdSearch className="text-xl" />
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">경작 면적 (평)</label>
@@ -315,11 +368,46 @@ export default function ProfilePage() {
           </>
         )}
       </Section>
+
+      {/* 카카오 우편번호 모달 (해충진단과 동일) */}
+      {isPostcodeOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          role="presentation"
+          onClick={() => setIsPostcodeOpen(false)}
+        >
+          {/* Focus Trap Sentinel (Start) */}
+          <div tabIndex={0} onFocus={() => postcodeCloseButtonRef.current?.focus()} aria-hidden="true" />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-postcode-modal-title"
+            className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 overflow-hidden flex flex-col"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-4 border-b border-gray-100">
+              <h3 id="profile-postcode-modal-title" className="font-bold text-gray-800 text-lg">주소 검색</h3>
+              <button
+                type="button"
+                ref={postcodeCloseButtonRef}
+                aria-label="주소 검색 닫기"
+                onClick={() => setIsPostcodeOpen(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="w-full h-[400px]">
+              <DaumPostcode onComplete={handleCompletePostcode} style={{ height: '100%' }} />
+            </div>
+          </div>
+          {/* Focus Trap Sentinel (End) */}
+          <div tabIndex={0} onFocus={() => postcodeCloseButtonRef.current?.focus()} aria-hidden="true" />
+        </div>
+      )}
     </div>
   );
 }
-
-/* ────────────── 서브 컴포넌트 ────────────── */
 
 function Section({
   title, icon, children, isEditing, onEdit, onCancel, onSave, saving,

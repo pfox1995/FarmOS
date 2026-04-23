@@ -1,7 +1,8 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams, useParams as useReactRouterParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MdSend, MdArrowBack, MdRefresh, MdSmartToy, MdPerson } from 'react-icons/md';
+import toast from 'react-hot-toast';
 
 interface Message {
   id: string;
@@ -14,8 +15,14 @@ interface Message {
 // 마크다운 렌더러 컴포넌트 (개선된 파서)
 function MarkdownRenderer({ content }: { content: string }) {
   const parseMarkdown = (text: string): string => {
+    const normalizeLegacyPlaceholders = (value: string): string =>
+      value
+        .replace(/(?:\\)?\{\{\s*PEST_IDENTIFICATION_LINE\s*\}\}|(?:\\)?\{\s*PEST_IDENTIFICATION_LINE\s*\}|^PEST_IDENTIFICATION_LINE$/gm, '🔍 입력하신 이미지는 해충으로 인식되었습니다. 이를 기반으로 답변하겠습니다.')
+        .replace(/(?:\\)?\{\{\s*PESTICIDE_HTML\s*\}\}|(?:\\)?\{\s*PESTICIDE_HTML\s*\}|^PESTICIDE_HTML$/gm, '<p class="my-2 text-gray-400 italic">권장 농약 정보가 누락되었습니다.</p>')
+        .replace(/(?:\\)?\{\{\s*WEATHER_HTML\s*\}\}|(?:\\)?\{\s*WEATHER_HTML\s*\}|^WEATHER_HTML$/gm, '<p class="my-2 text-gray-400 italic">날씨 정보를 불러오지 못했습니다.</p>');
+
     // 텍스트 전처리: LLM이 평문으로 응답할 경우를 대비해 특정 패턴에 마크다운 기호 주입
-    let processedText = text
+    let processedText = normalizeLegacyPlaceholders(text)
       .replace(/^\s*(##\s*)?⚠️ 공지/gm, '## ⚠️ 공지')
       .replace(/^\s*(-\s*)?현재 날씨:/gm, '- 현재 날씨:')
       .replace(/^\s*(-\s*)?조언:/gm, '- 조언:')
@@ -105,6 +112,15 @@ function MarkdownRenderer({ content }: { content: string }) {
         continue;
       }
 
+      // HTML 태그 (CSS 카드 형태 등)
+      if (line.trim().startsWith('<')) {
+        while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
+        if (inList) { result.push('</ul>'); inList = false; }
+        const formatted = line.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+        result.push(formatted);
+        continue;
+      }
+
       // 일반 텍스트
       if (line.trim()) {
         while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
@@ -141,6 +157,7 @@ export default function DiagnosisChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // API 호출 베이스 경로
   const API_BASE = 'http://localhost:8000/api/v1/diagnosis';
@@ -152,6 +169,7 @@ export default function DiagnosisChatPage() {
   // DB에서 채팅 내역 불러오기
   const fetchChatMessages = async () => {
     if (!context?.id) return;
+    setIsLoading(true);
     try {
       const response = await fetch(`${API_BASE}/history/${context.id}/chat`, {
         credentials: 'include'
@@ -168,9 +186,14 @@ export default function DiagnosisChatPage() {
         }));
         
         setMessages(dbMessages);
+      } else {
+        toast.error("채팅 내역을 불러오는데 실패했습니다.");
       }
     } catch (err) {
       console.error("채팅 내역 조회 실패:", err);
+      toast.error("채팅 내역을 불러오는데 실패했습니다. 서버 연결을 확인해주세요.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -253,9 +276,12 @@ export default function DiagnosisChatPage() {
           
           return [...filtered, ...newMessages];
         });
+      } else {
+        throw new Error('서버 응답 오류가 발생했습니다.');
       }
     } catch (err) {
       console.error("메시지 전송 실패:", err);
+      toast.error("메시지 전송에 실패했습니다. 잠시 후 다시 시도해주세요.");
       // 실패 시 임시 메시지 복구/제거 처리
       setMessages(prev => prev.filter(m => m.id !== tempId));
     } finally {
@@ -282,6 +308,28 @@ export default function DiagnosisChatPage() {
       {/* Chat Area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/30">
         <AnimatePresence>
+          {isLoading && messages.length === 0 && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              className="flex flex-col items-center justify-center h-full space-y-4 py-20"
+            >
+              <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+              <p className="text-sm text-gray-500 font-medium">대화 내용을 불러오는 중입니다...</p>
+            </motion.div>
+          )}
+          
+          {!isLoading && messages.length === 0 && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              className="flex flex-col items-center justify-center h-full space-y-3 py-20 opacity-60"
+            >
+              <MdSmartToy className="text-5xl text-gray-300" />
+              <p className="text-sm text-gray-400">대화 내용이 없습니다.</p>
+            </motion.div>
+          )}
+
           {messages.map((msg) => (
             <motion.div
               key={msg.id}
@@ -313,9 +361,15 @@ export default function DiagnosisChatPage() {
                     <div className={`p-4 rounded-2xl shadow-sm border ${
                       msg.role === 'user' 
                         ? 'bg-primary text-white border-primary rounded-tr-none' 
-                        : 'bg-white text-gray-700 border-gray-100 rounded-tl-none whitespace-pre-wrap'
+                        : 'bg-white text-gray-700 border-gray-100 rounded-tl-none'
                     }`}>
-                      <p className="text-sm leading-relaxed">{msg.content}</p>
+                      {msg.role === 'assistant' ? (
+                        <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-ul:my-1 prose-li:my-0.5">
+                          <MarkdownRenderer content={msg.content} />
+                        </div>
+                      ) : (
+                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -323,12 +377,15 @@ export default function DiagnosisChatPage() {
             </motion.div>
           ))}
           {isTyping && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start gap-3">
+            <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start gap-3">
               <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center"><MdSmartToy /></div>
-              <div className="bg-white p-3 rounded-2xl rounded-tl-none shadow-sm flex gap-1">
-                <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" />
-                <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:0.2s]" />
-                <span className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce [animation-delay:0.4s]" />
+              <div className="bg-white p-3 rounded-2xl rounded-tl-none shadow-sm flex flex-col gap-2 border border-gray-100">
+                <div className="flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce" />
+                  <span className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:0.2s]" />
+                  <span className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-bounce [animation-delay:0.4s]" />
+                </div>
+                <p className="text-[11px] text-gray-400 font-medium leading-none">진단봇이 생각 중이에요. 잠시만 기다려 주세요...</p>
               </div>
             </motion.div>
           )}
