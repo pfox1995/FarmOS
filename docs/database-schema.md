@@ -14,15 +14,21 @@
 
 ## 저장소 구분
 
+<!-- Code Sync: 2026-04-23 -->
+
 | 영역 | 저장 방식 | 사유 |
 |------|----------|------|
-| 사용자 인증 | **PostgreSQL** | 영속 데이터 |
-| IoT 센서 | **PostgreSQL** (`iot_` 접두사 테이블) | 영속 저장, 서버 재시작 후에도 히스토리 유지 (2026-04-20 인메모리에서 전환) |
-| 쇼핑몰 | **PostgreSQL** (`shop_` 접두사 테이블) | FarmOS와 동일 DB 공유, 테이블명으로 구분 |
+| 사용자 인증 | **PostgreSQL** (`users`) | 영속 데이터 |
+| IoT 센서 / 관수 / 알림 | **N100 Relay 전용 `iot-postgres` 컨테이너 (`iotdb`)** | 2026-04-21 이후 FarmOS 로컬 DB 에서 제거. Relay 가 SSoT. |
+| AI 판단 (원본) | Relay `iotdb` (`iot_agent_decisions`) | Relay 가 canonical source |
+| AI 판단 (미러) | FarmOS `farmos` DB (`ai_agent_decisions` + `ai_agent_activity_daily/hourly`) | 최근 30일 mirror + 집계 |
+| 리뷰 분석 결과 | FarmOS `farmos` DB (`review_analyses`, `review_sentiments`) | 영속 |
+| 리뷰 임베딩 벡터 | **ChromaDB** (컬렉션 `reviews_voyage_v35`, 1024-dim) | PostgreSQL 밖, 디스크 persistent store |
+| 쇼핑몰 | **PostgreSQL** (`shop_` 접두사 테이블) | FarmOS와 동일 DB 공유 |
 
-> IoT 센서/관수/알림 데이터는 로컬 BE(`farmos` DB)와 N100 Relay(**전용 `iot-postgres` 컨테이너 / `iotdb` DB**)에 **동일한 스키마**로 저장된다.
-> 로컬 BE DB: 프론트엔드 대시보드 + AI Agent 조회 전용. N100 Relay DB: ESP8266 수신 전용.
-> N100 의 `iot-postgres` 는 기존 운영 중인 다른 Postgres 와 네트워크/볼륨/자격증명이 완전히 분리된 전용 인스턴스다.
+> **2026-04-21**: FarmOS `farmos` DB 의 `iot_*` 테이블은 `backend/scripts/drop_iot_legacy_tables.sql` 로 **완전 제거**됐다. 아래 §IoT 테이블 섹션은 **Relay 측 `iotdb` 의 스키마 레퍼런스**로만 유효하다 (Relay 는 같은 DDL 유지).
+> AI 판단 데이터는 Relay 가 원본, FarmOS 가 미러(30일 TTL) + 일/시간 요약을 Bridge Worker 로 동기화.
+> N100 `iot-postgres` 는 기존 운영 중인 다른 Postgres 와 네트워크/볼륨/자격증명이 완전히 분리된 전용 인스턴스다.
 
 ---
 
@@ -52,10 +58,12 @@
 
 ---
 
-## IoT 테이블 (`iot_` 접두사)
+## IoT 테이블 (`iot_` 접두사) — Relay `iotdb` 전용
 
-> 모델 파일: `backend/app/models/iot.py`
-> 저장소 모듈: `backend/app/core/store.py` (SQLAlchemy 2.0 async + asyncpg)
+<!-- Code Sync: 2026-04-23 — FarmOS 로컬 DB 에서 제거됨. Relay 만 보유. -->
+
+> **주의**: 2026-04-21 이후 FarmOS `farmos` DB 에는 `iot_*` 테이블이 존재하지 않는다. 아래 DDL 은 현재 **N100 Relay `iot-postgres` 컨테이너 / `iotdb` DB** 에만 적용된 상태다. 관련 소스는 `iot_relay_server/app/store.py` (asyncpg), DDL 원본은 `iot_relay_server/iot_init.sql` 또는 `docs/iot-relay-server-postgres-patch.md §1`.
+> 이전 모델 파일: `backend/app/models/iot.py` (삭제됨), `backend/app/core/store.py` (레거시 경로 제거됨).
 
 ### `iot_sensor_readings`
 
@@ -157,6 +165,48 @@ UPSERT 전략: Bridge 가 원본 INSERT 성공 시마다 `ON CONFLICT (day, cont
 > **데이터 정합성**: `ai_agent_decisions` (원본) 이 canonical source. daily/hourly 는 Bridge 가 장애로 누락된 경우 원본에서 재빌드 가능 (운영 스크립트는 추후 작성).
 >
 > **TTL**: `ai_agent_decisions` 는 `AI_AGENT_MIRROR_TTL_DAYS=30` (default). 야간 배치로 `DELETE WHERE created_at < now() - INTERVAL '30 days'` 수행 예정 (현재 수동 또는 Bridge 에 후속 구현).
+
+---
+
+## 리뷰 분석 테이블 (`review_analyses`, `review_sentiments`)
+
+<!-- Code Sync: 2026-04-23 -->
+
+> 모델: `backend/app/models/review_analysis.py`
+> Pydantic 스키마: `backend/app/schemas/review_analysis.py`
+> 생성: FastAPI 기동 시 `Base.metadata.create_all` 로 자동 생성.
+
+### `review_analyses` (분석 실행 기록)
+
+| 컬럼 | 타입 | NULL | 설명 |
+|------|------|:----:|------|
+| id | SERIAL | NO | PK |
+| analysis_type | VARCHAR(20) | NO | `manual` \| `batch` (현재 `batch` 미사용 — Phase 2 연기) |
+| target_scope | VARCHAR(50) | NO | `all` \| `product:{id}` \| `platform:{name}` |
+| review_count | INTEGER | NO | 분석 대상 리뷰 총 건수 (샘플링 전 전체) |
+| sentiment_summary | JSONB | YES | `{positive, negative, neutral, total}` |
+| keywords | JSONB | YES | `[{word, count, sentiment}]` |
+| summary | TEXT | YES | 3-part 요약 JSON 문자열 (`overall` / `positives` / `negatives` / `suggestions`) |
+| trends | JSONB | YES | 주간/이상 탐지 결과 |
+| anomalies | JSONB | YES | `[{type, week, message, severity}]` |
+| llm_provider | VARCHAR(30) | YES | `OllamaClient` / `OpenRouterClient` / `RemoteOllamaClient` |
+| llm_model | VARCHAR(50) | YES | `llama3`, `openai/gpt-4o-mini` 등 |
+| processing_time_ms | INTEGER | YES |  |
+| created_at | TIMESTAMPTZ | NO | `now()` default |
+
+### `review_sentiments` (개별 리뷰 감성 캐시)
+
+| 컬럼 | 타입 | NULL | 설명 |
+|------|------|:----:|------|
+| id | SERIAL | NO | PK |
+| review_id | VARCHAR(50) | NO | ChromaDB 리뷰 ID (외부 키 없음, 논리적 참조) |
+| sentiment | VARCHAR(10) | NO | `positive` \| `negative` \| `neutral` |
+| score | FLOAT | YES | 0.0 ~ 1.0 신뢰도 |
+| reason | TEXT | YES | LLM 판단 근거 |
+| keywords | JSONB | YES | 리뷰별 키워드 |
+| analyzed_at | TIMESTAMPTZ | NO | `now()` default |
+
+> ChromaDB 벡터는 별도 저장. 컬렉션: `reviews_voyage_v35` (1024-dim, LiteLLM → VoyageAI `voyage-3.5`). Migration history: §iot-review-analysis-implementation.md §2.1.
 
 ---
 

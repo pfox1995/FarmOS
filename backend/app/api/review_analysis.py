@@ -386,6 +386,12 @@ async def search_reviews(
 
     멀티테넌트: seller_id가 있으면 해당 판매자의 상품 리뷰만 검색합니다.
     """
+    # 컬렉션 이름 변경(예: reviews_bge_m3 → reviews_voyage_v35) 후 최초 요청 시
+    # 새 컬렉션이 비어 있으므로 여기서 전체 재임베딩을 수행하는 것이
+    # 현재의 "empty-new-collection window" 완화 장치이다.
+    # 주의: 재임베딩은 수 분이 걸릴 수 있어 첫 요청이 지연된다.
+    # 운영 시에는 트래픽 컷오버 전에 docs/runbooks/review-embedding-migration.md
+    # 절차대로 수동 sync_from_db 를 선행하여 사용자 대기를 피한다.
     if _rag.get_count() == 0:
         await _rag.sync_from_db(db)
 

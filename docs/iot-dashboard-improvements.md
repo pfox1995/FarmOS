@@ -101,11 +101,93 @@ clamp(20, 85)
 
 ---
 
+## 5. AI Agent Panel + SSE 이벤트 소비 (2026-04-23 추가)
+
+<!-- Code Sync: 2026-04-23 -->
+
+2026-04-07 이후 IoT 대시보드는 센서 표시 기능을 넘어, AI Agent 판단 이력·요약·상세 모달과 수동 제어 패널까지 통합된 상태다. 아래는 현재 production 코드(2026-04-23 기준) 의 프론트엔드 구조다.
+
+### 5.1 컴포넌트 트리 (IoTDashboardPage)
+
+```
+IoTDashboardPage.tsx
+├── SensorCards            (기존)
+├── IrrigationHistoryList + IrrigationModal (기존 §1~2)
+├── SensorAlertList        (기존 §1)
+├── ManualControlPanel     (iot-manual-control feature)
+│   ├── ControlCard × 4    (환기/관수/조명/차광)
+│   └── SimulationBar      (시뮬레이션 모드)
+└── AIAgentPanel           (Tool Calling 전환 후)
+    ├── AIActivitySummaryCards   (오늘/7일/30일 탭 집계)
+    ├── 4대 제어 상태 카드
+    ├── 최근 판단 목록            (row 클릭 → DetailModal)
+    └── AIDecisionDetailModal    (tool_calls, sensor_snapshot 표시)
+```
+
+### 5.2 SSE 단일 연결, 다중 이벤트 소비
+
+`useSensorData.ts` 는 단일 EventSource(`/api/v1/sensors/stream`) 를 유지하며, 이벤트 타입별로 별도 핸들러 레지스트리를 두고 여러 훅/컴포넌트가 중복 연결 없이 구독한다.
+
+| 이벤트 | 핸들러 레지스트리 | 소비 훅/컴포넌트 |
+|--------|------------------|------------------|
+| `sensor` | 내부 state 업데이트 | SensorCards |
+| `alert` | 내부 state 업데이트 | SensorAlertList |
+| `irrigation` | 내부 state 업데이트 | IrrigationHistoryList |
+| `control` | `_controlHandlers` | `useManualControl.handleControlEvent` → ManualControlPanel |
+| `ai_decision` | `_aiDecisionHandlers` | `useAIAgent` → AIAgentPanel (prepend + 요약 숫자 증가) |
+
+실패 감지는 기존 5회 연속 실패 규칙(§4)을 유지하며, EventSource 는 자동 재연결.
+
+### 5.3 useAIAgent 2-base 패턴
+
+`useAIAgent` 는 두 개의 API base 를 동시에 사용한다.
+
+| Base | 용도 | 호출 대상 |
+|------|------|----------|
+| Relay `VITE_IOT_API_URL` (예: `http://iot.lilpa.moe:9000/api/v1`) | Agent ON/OFF, 작물 프로필, 수동 오버라이드 | `/ai-agent/toggle`, `/ai-agent/crop-profile`, `/ai-agent/override` |
+| FarmOS `VITE_API_BASE` (예: `/api/v1`) | 판단 이력 조회 (미러) + 요약 | `/ai-agent/activity/summary`, `/ai-agent/decisions?cursor=...`, `/ai-agent/decisions/{id}` |
+
+이력 조회를 FarmOS BE 로 돌리는 이유는 FarmOS Bridge Worker 가 최근 30일 미러 + 집계 테이블을 들고 있어 Relay 재시작과 무관하게 이력이 유지되기 때문이다. `ai_agent_decisions` row 의 `id` 는 Relay UUID 를 그대로 PK 로 재사용하므로 Detail Modal 의 "원본 id" 도 동일하다.
+
+### 5.4 SSE `ai_decision` 소비 규칙
+
+- 수신 payload 는 `AIDecision` 전체 shape (id/reason/action/tool_calls/sensor_snapshot/duration_ms).
+- **persist → broadcast** 순서가 Relay 측에서 보장되므로 (`iot-ai-agent-implementation.md §13.2`), FE 는 FarmOS Bridge 의 eventual consistency 에 의존할 필요 없이 payload 를 그대로 prepend 할 수 있다.
+- 요약 카드는 현재 탭이 `today` 일 때만 증분 계산(total + by_*) 한다. 다른 탭은 탭 전환 시 `/activity/summary?range=...` 를 재조회한다.
+
+### 5.5 수정 / 신규 파일 (2026-04-16 ~ 2026-04-20)
+
+| 파일 | 상태 | 책임 |
+|------|:----:|------|
+| `frontend/src/modules/iot/AIAgentPanel.tsx` | ✏ MODIFY | row 전체 클릭 → DetailModal, 기존 "도구 호출 N건" 버튼 제거 |
+| `frontend/src/modules/iot/AIActivitySummaryCards.tsx` | ★ NEW | 오늘/7일/30일 탭 + 4카드 (total / top1 ctype / top1 source / avg duration) |
+| `frontend/src/modules/iot/AIDecisionDetailModal.tsx` | ★ NEW | reason / action / sensor_snapshot / tool_calls (N) 렌더 + Copy 버튼 |
+| `frontend/src/modules/iot/ManualControlPanel.tsx` | ★ NEW | 4종 제어 카드 + 시뮬레이션 모드 토글 |
+| `frontend/src/hooks/useAIAgent.ts` | ✏ MODIFY | 2-base 패턴 + `fetchMore(cursor)` `fetchDetail(id)` `fetchSummary(range)` + SSE prepend |
+| `frontend/src/hooks/useManualControl.ts` | ★ NEW | 제어 상태 관리 + SSE control 이벤트 수신 + 시뮬레이션 버튼 |
+| `frontend/src/hooks/useSensorData.ts` | ✏ MODIFY | `addEventListener('control')`, `addEventListener('ai_decision')` + 핸들러 레지스트리 |
+| `frontend/src/types/index.ts` | ✏ MODIFY | `AIDecision` id 필수화, `sensor_snapshot?`·`duration_ms?`·`created_at?` 추가, `ControlEvent`/`ManualControlState` 등 |
+
+---
+
 ## 수정 파일 전체 목록
 
 | 파일 | 변경 항목 |
 |------|----------|
-| `frontend/src/modules/iot/IoTDashboardPage.tsx` | 더보기, 모달+그래프 |
-| `frontend/src/hooks/useSensorData.ts` | 연결 끊김 판정 5회 연속 실패 |
-| `iot_relay_server/app/store.py` | 토양 습도 추정 로직 (서비스) |
+| `frontend/src/modules/iot/IoTDashboardPage.tsx` | 더보기, 모달+그래프, ManualControlPanel 통합 |
+| `frontend/src/hooks/useSensorData.ts` | 5회 연속 실패 연결 끊김 + control/ai_decision SSE 핸들러 |
+| `frontend/src/modules/iot/AIAgentPanel.tsx` | row 클릭 상세 모달, 요약 카드 슬롯 |
+| `frontend/src/modules/iot/AIActivitySummaryCards.tsx` | **신규** — 오늘/7일/30일 탭 요약 |
+| `frontend/src/modules/iot/AIDecisionDetailModal.tsx` | **신규** — tool_calls trace 상세 |
+| `frontend/src/modules/iot/ManualControlPanel.tsx` | **신규** — 수동 제어 UI + 시뮬레이션 |
+| `frontend/src/hooks/useAIAgent.ts` | 2-base 패턴 + pagination + SSE prepend |
+| `frontend/src/hooks/useManualControl.ts` | **신규** — 제어 상태 + SSE control 수신 |
+| `iot_relay_server/app/store.py` | 토양 습도 추정 로직 (서비스) + `add_agent_decision` · `list_agent_decisions` |
+| `iot_relay_server/app/control_store.py` | **신규** — 제어 상태 인메모리 + 파일 영속화 |
+| `iot_relay_server/app/control_routes.py` | **신규** — 5개 제어 엔드포인트 |
+| `iot_relay_server/app/tools/definitions.py` | **신규** — 8개 Tool JSON Schema |
+| `iot_relay_server/app/tools/executor.py` | **신규** — Tool 실행 디스패처 |
+| `backend/app/services/ai_agent_bridge.py` | **신규** — SSE + backfill + 멱등 UPSERT + daily/hourly |
+| `backend/app/api/ai_agent.py` | **신규** — 미러 읽기 API (JWT 인증) |
+| `backend/app/models/ai_agent.py` | **신규** — 3 테이블 ORM |
 | `backend/app/core/store.py` | 토양 습도 추정 로직 (로컬 동기화) |

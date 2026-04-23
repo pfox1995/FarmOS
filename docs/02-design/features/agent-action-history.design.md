@@ -3,11 +3,12 @@
 > **Summary**: N100 Relay → FarmOS Postgres 를 SSE Bridge 로 잇고, FarmOS BE 에 원본 미러(30일) + 일/시간 요약 + 3 개 REST API 를 두며, 프론트 AIAgentPanel 에 요약 카드·더보기(cursor pagination)·상세 모달을 추가한다 (Option C — Pragmatic).
 >
 > **Project**: FarmOS - agent-action-history
-> **Version**: 0.1.0
+> **Version**: 0.2.0
 > **Author**: clover0309
-> **Date**: 2026-04-20
-> **Status**: Draft
+> **Date**: 2026-04-20 (Code Sync: 2026-04-23)
+> **Status**: **Production (implemented & verified)** — 2026-04-23 코드 기준 모든 Module 1~6 구현 완료. L1 26/26 PASS, L2 6/6 PASS, L3 2/3 PASS (§8.5 E2 SSE 실시간 테스트는 미구현, production 동작은 확인됨).
 > **Planning Doc**: [agent-action-history.plan.md](../../01-plan/features/agent-action-history.plan.md)
+> **Archive**: `docs/archive/2026-04/agent-action-history/` (plan/design/analysis/report 완료 스냅샷)
 
 ### Pipeline References
 
@@ -817,3 +818,4 @@ module-1 ──▶ module-2 ──▶ module-3
 |---------|------|---------|--------|
 | 0.1 | 2026-04-20 | Initial draft — Option C 선택, DDL/API/컴포넌트 확정, Module Map 6개 | clover0309 |
 | 0.2 | 2026-04-20 | §8 Test Plan 에 최종 실행 결과 추가 (L1 26/26, L2 6/6, L3 2/3) + E2 미구현 명시 | clover0309 |
+| 0.3 | 2026-04-23 | Code Sync — Status 를 Production 으로 상향. 구현체 파일 경로(§11.1) 는 코드와 1:1 매치 확인됨: `backend/app/services/ai_agent_bridge.py`, `backend/app/api/ai_agent.py`, `backend/app/models/ai_agent.py`, `frontend/src/modules/iot/AI*Panel.tsx` / `AIActivitySummaryCards.tsx` / `AIDecisionDetailModal.tsx`, `frontend/src/hooks/useAIAgent.ts`. 피처 플래그 `AI_AGENT_BRIDGE_ENABLED` 배포 절차는 `docs/backend-architecture.md §AI Agent Bridge Worker` 참조. SSE broadcast 불변식(persist → broadcast) 은 `docs/iot-ai-agent-implementation.md §13.2` 로 이관. | clover0309 |

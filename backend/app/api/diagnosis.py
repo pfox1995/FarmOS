@@ -203,7 +203,7 @@ async def add_chat_message(
         
         api_key = settings.OPENROUTER_API_KEY
         model_name = settings.OPENROUTER_PEST_RAG_MODEL
-        
+
         ai_reply = "API 키가 없어 답변할 수 없습니다."
         if api_key and api_key != "dummy":
             try:

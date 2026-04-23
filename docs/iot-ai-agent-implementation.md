@@ -2,6 +2,8 @@
 
 > **작성일**: 2026-04-07
 > **상태**: 구현 완료 (버그 수정 포함)
+>
+> **Code Sync 2026-04-23**: 이 문서는 초기 규칙+LLM JSON 판단 구조를 기록한다. 2026-04-14 Tool Calling 전환(§6 tools/ 패키지, §13 reasoning_trace) 이후 변경 사항은 본 문서에도 부분 반영되어 있으며, 상세한 전환 보고는 `docs/iot-ai-agent-tool-calling-report.md` 를 읽는다. FarmOS 측 판단 미러(`ai_agent_decisions`) 는 `docs/02-design/features/agent-action-history.design.md` 참고.
 
 ---
 
@@ -95,21 +97,35 @@ KY-018 LDR이 간헐적으로 0값을 반환하는 문제 대응:
 
 ### 릴레이 서버 (iot_relay_server/app/)
 
+<!-- Code Sync: 2026-04-23 — tools/ 패키지, control_store.py 추가 반영 -->
+
 | 파일 | 역할 |
 |------|------|
-| `config.py` | 설정 (AI_AGENT_MODEL, KMA 키 등) |
+| `config.py` | 설정 (AI_AGENT_MODEL=`gpt-5-mini`, KMA 키 등) |
 | `sensor_filter.py` | 센서 이상값 필터링 |
-| `weather_client.py` | 기상청 API 클라이언트 |
-| `ai_agent_prompts.py` | LLM 시스템/사용자 프롬프트 |
-| `ai_agent.py` | Agent 엔진 (규칙+LLM, 상태관리, 이력) |
-| `schemas.py` | CropProfileIn, OverrideIn 추가 |
-| `store.py` | 토양습도 추정 (기존) |
-| `main.py` | Agent 라우터 + 센서수신 시 Agent 호출 |
+| `weather_client.py` | 기상청 API 클라이언트 (+ mock 예보) |
+| `ai_agent_prompts.py` | Tool Use 시스템/사용자 프롬프트 |
+| `ai_agent.py` | Agent 엔진 (규칙 엔진 + LLM Tool Calling 루프, 상태관리, 이력, SSE broadcast) |
+| `tools/definitions.py` | **(신규)** 8개 Tool JSON Schema 정의 (읽기 4 + 제어 4) |
+| `tools/executor.py` | **(신규)** Tool 실행 디스패처 + 핸들러 |
+| `control_store.py` | **(신규)** 수동 제어 인메모리 상태 + 파일 영속화 (`control_state.json`) |
+| `control_routes.py` | **(신규)** `/api/v1/control/*` 5개 엔드포인트 |
+| `schemas.py` | CropProfileIn, OverrideIn, ControlCommandIn, ControlReportIn 등 |
+| `store.py` | 토양습도 추정 + `iot_sensor_readings/irrigation/alerts` asyncpg CRUD + SSE broadcast 공유 (`_broadcast`, `_sse_subscribers`) + `iot_agent_decisions` asyncpg CRUD (`add_agent_decision` 등) |
+| `main.py` | `sensors_router` + `ai_agent_router` + `control_router` 등록, asyncpg Pool lifespan |
 
 ### 로컬 백엔드 (backend/app/)
 
-릴레이 서버와 동일한 구조로 `core/` 하위에 배치.
-`api/ai_agent.py`는 JWT 인증 포함.
+> **2026-04-14 Tool Calling 전환**: 백엔드의 `core/ai_agent.py`·`core/ai_agent_prompts.py`·`api/ai_agent.py` **Agent 판단 로직**은 Relay 와의 중복 제거 차원에서 삭제되었다. 백엔드는 더 이상 LLM 을 직접 호출하지 않고, Relay 가 canonical source.
+>
+> **2026-04-20 agent-action-history**: 대신 백엔드는 Relay `ai_decision` 을 소비해 `ai_agent_decisions` 미러 테이블에 저장하는 **Bridge Worker** 와 **읽기 전용 API** 를 담당한다.
+
+| 레이어 | 파일 | 역할 |
+|--------|------|------|
+| Services | `backend/app/services/ai_agent_bridge.py` | Relay SSE 구독 + HTTP backfill + 멱등 UPSERT + daily/hourly 요약 |
+| Models | `backend/app/models/ai_agent.py` | `AiAgentDecision` / `AiAgentActivityDaily` / `AiAgentActivityHourly` |
+| API | `backend/app/api/ai_agent.py` | `/api/v1/ai-agent/activity/summary`, `/decisions`, `/decisions/{id}`, `/bridge/status` (세션 인증) |
+| Main | `backend/app/main.py` | `AI_AGENT_BRIDGE_ENABLED=True` 일 때 lifespan 에서 Bridge `asyncio.create_task` 로 start |
 
 ### 프론트엔드 (frontend/src/)
 
@@ -208,3 +224,48 @@ docker-compose up -d --build
 ```
 
 Docker 재빌드 시 새 파일(sensor_filter.py, weather_client.py, ai_agent.py 등)이 자동 포함됨.
+
+---
+
+## 13. reasoning_trace / tool_calls 정의 (2026-04-23 추가)
+
+<!-- Code Sync: 2026-04-23 -->
+
+Tool Calling 전환 이후 "reasoning trace" 라는 용어가 여러 장소(프롬프트, 모델, 프론트 UI) 에서 사용되므로 정의를 명확히 한다.
+
+### 13.1 저장되는 것 / 저장되지 않는 것
+
+| 항목 | 저장 위치 | 타입 | 저장 여부 |
+|------|-----------|------|:--------:|
+| 최종 `reason` 1~2문장 요약 | `iot_agent_decisions.reason` / `ai_agent_decisions.reason` | TEXT | ✅ |
+| Tool 호출 순서·인자·result | `iot_agent_decisions.tool_calls` / `ai_agent_decisions.tool_calls` | JSONB 배열 | ✅ |
+| 판단 시점 센서 스냅샷 | `sensor_snapshot` | JSONB | ✅ |
+| `action` (실제 제어 변경 payload) | `action` | JSONB | ✅ |
+| LLM 멀티턴 대화 히스토리 전체 (system/user/assistant turns) | — | — | ❌ 저장하지 않음 |
+| LLM raw completion (tokens/logprobs/stop_reason 등) | — | — | ❌ 저장하지 않음 |
+
+즉, **"reasoning_trace" 는 이 문서 맥락에서 `tool_calls` JSONB 배열을 가리킨다**. full LLM turn history 를 persist 하지 않는 이유는 (1) 토큰 수만큼 DB 비용이 선형 증가하고, (2) 30일 TTL(`AI_AGENT_MIRROR_TTL_DAYS`) 내에서 재구성 가치가 낮기 때문이다.
+
+### 13.2 SSE broadcast 순서 불변식
+
+```
+[LLM 완료] → [iot_agent_decisions INSERT (reason + tool_calls + sensor_snapshot)]
+           → [SSE broadcast("ai_decision", payload)]
+```
+
+- **persist 가 반드시 broadcast 보다 앞**에 있어야 한다.
+- 이유: FarmOS Bridge 는 `ai_agent_decisions` 테이블에 `ON CONFLICT (id) DO NOTHING` 으로 UPSERT 한다. broadcast 가 먼저 도착해 Bridge 가 insert 하더라도, Relay 가 장애로 재시작하면 Bridge 의 backfill 호출(`GET /ai-agent/decisions?since=...`) 이 Relay DB 를 기준으로 하기 때문에 Relay persist 가 누락되면 `tool_calls` 가 영구 유실된다.
+- 불변식 위반 예: `broadcast → (장애) → persist 미실행` 시, FarmOS 측 row 는 존재하지만 tool_calls 가 `[]` 상태가 될 수 있다.
+
+이 규칙은 `iot-relay-server-postgres-patch.md` §10.4 와 `docs/02-design/features/agent-action-history.design.md` §2.2 의 Happy Path 를 구체화한 것이다.
+
+### 13.3 프론트엔드 소비
+
+- `AIDecisionDetailModal.tsx` 는 `tool_calls` 배열을 순번·도구명·arguments·result.success 로 렌더.
+- `AIAgentPanel.tsx` 의 row 는 요약(`reason` 1줄 + SourceBadge `rule`/`llm`/`tool`/`manual`) 만 표시하고 트레이스 전체는 모달로 이동.
+- `useSensorData.ts` SSE `ai_decision` 수신 → `_aiDecisionHandlers` 체인 → `useAIAgent` 훅이 목록 최상단에 prepend 및 `/activity/summary` 숫자 증가.
+
+### 13.4 운영 관찰 포인트
+
+- `/api/v1/ai-agent/bridge/status` 의 `last_event_at` 이 5분 이상 정체되면 SSE 연결 단절 또는 LLM 호출 중단 의심.
+- Relay `iot_agent_decisions` 와 FarmOS `ai_agent_decisions` 의 건수 차이가 backfill TTL(`AI_AGENT_MIRROR_TTL_DAYS=30`) 이내에서 `±1` 를 초과하면 불변식 위반 징후.

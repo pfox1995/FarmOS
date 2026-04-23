@@ -1,9 +1,11 @@
 # IoT Relay Server — PostgreSQL 전환 패치 스펙 (전용 컨테이너 분리)
 
 > **목적**: N100의 `iot_relay_server/` 를 인메모리에서 **전용 PostgreSQL 컨테이너**로 전환.
-> **적용**: 사용자가 N100 서버에서 직접 적용 (본 레포에는 Relay 코드가 존재하지 않음).
+> **적용**: 사용자가 N100 서버에서 직접 적용. 현재 리포는 `iot_relay_server/` 를 **루트 수준에서 포함**하고 있어 본 문서의 DDL/`app/store.py`/`app/main.py` 패치 구조와 1:1 매치됨.
 > **설계 결정 (2026-04-20)**: 기존 운영 중인 PostgreSQL 과 **격리된 전용 컨테이너** 운영.
 >   → 30초 주기 INSERT 워크로드가 기존 DB 성능에 영향을 주지 않음 + 독립 백업/업그레이드/리셋 가능.
+>
+> **Code Sync 2026-04-23 (Verification)**: §1 DDL (3 테이블 + `iot_agent_decisions` §10.1) 은 현재 Relay `iot_relay_server/iot_init.sql` 과 `app/store.py` asyncpg 쿼리에 그대로 적용되어 있음. §10.4 persist-before-broadcast 불변식은 `iot-ai-agent-implementation.md §13.2` 에 재정의되어 운영 규칙으로 격상됨. §10.8 asyncpg `AmbiguousParameterError` 대응(`CAST(:src AS text)`) 은 `backend/app/services/ai_agent_bridge.py` `_bump_daily` / `_bump_hourly` 에 반영 완료. 본 문서는 **현행 구조와 일치**하며 추가 수정이 필요하지 않다.
 
 ## 0. 아키텍처 (전용 컨테이너)
 

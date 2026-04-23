@@ -2,8 +2,10 @@
 
 > **작성일**: 2026-04-10
 > **작성자**: clover0309
-> **PDCA Match Rate**: 96%
+> **PDCA Match Rate (초기)**: 96%
 > **상태**: 구현 완료 (아카이브 완료)
+>
+> **Code Sync 2026-04-23**: 이후 임베딩 파이프라인이 ChromaDB 내장(all-MiniLM-L6-v2) → Ollama(`nomic-embed-text`, BGE-M3) → **LiteLLM 프록시 + VoyageAI `voyage-3.5` (1024-dim)** 로 두 차례 마이그레이션됐다. 수동 분석에 SSE 스트리밍(`/embed/stream`, `/analyze/stream`) 이 추가됐고, 멀티테넌트 필터와 자동 배치 스케줄러는 **미구현 — Phase 2 연기** 상태다. 아래 섹션은 2026-04-23 기준 production 코드 상태를 반영한다.
 
 ---
 
@@ -16,24 +18,39 @@ LLM으로 감성분석/키워드추출/요약을 수행한다.
 ### 핵심 특징
 
 - **RAG 직접 구현**: LangChain 없이 ChromaDB + LLM 직접 연동
-- **LLM 추상화**: .env 설정만으로 Ollama(로컬) / OpenRouter(클라우드) / RunPod(원격) 전환
+- **생성 LLM 추상화**: .env 설정만으로 Ollama(로컬) / OpenRouter(클라우드) / RunPod(원격) 전환 (분석용 LLM)
+- **임베딩은 LiteLLM 프록시 경유 (Voyage v3.5, 2026-04-23 기준)**: 단순한 HTTP 포워딩으로 N100 부하 0, 모델 교체는 `.env` 의 `EMBED_MODEL` / `EMBED_DIM` 로 제어. 차원 변경 시 `COLLECTION_NAME` 변경 + 전체 재임베딩.
 - **1회 LLM 호출 = 3가지 분석**: 감성분석 + 키워드추출 + 요약을 단일 프롬프트로 동시 처리
-- **비용 최소화**: ChromaDB 내장 임베딩(비용 0원) + 배치 처리로 LLM 호출 횟수 최소화
+- **비용 최소화**: LiteLLM 임베딩은 배치 64 단위 + Voyage v3.5 단가 절감, 분석 LLM 은 배치 처리로 호출 횟수 최소화
+- **수동 트리거 전용 (2026-04-23)**: UI 버튼으로만 분석 실행. SSE 로 진행률 스트리밍. 자동 배치는 Phase 2 연기.
 
 ---
 
 ## 2. 기술 스택
 
+<!-- Code Sync: 2026-04-23 — 임베딩 파이프라인 마이그레이션 반영 -->
+
 | 구분 | 기술 | 비고 |
 |------|------|------|
-| 벡터DB | ChromaDB 1.5.5 | 내장 임베딩 모델 (all-MiniLM-L6-v2) |
-| LLM (개발) | Ollama (llama3) | 로컬 실행, 비용 0원 |
-| LLM (배포 A) | OpenRouter API | GPU 없는 서버용 |
-| LLM (배포 B) | Ollama on RunPod | GPU 서버 원격 실행 |
-| 백엔드 | FastAPI + SQLAlchemy (asyncpg) | 기존 FarmOS 스택 |
+| 벡터DB | ChromaDB | 컬렉션명 `reviews_voyage_v35` (1024-dim). 이전: `reviews_llama`(384-dim, 폐기), `reviews_bge_m3`(1024-dim, 중간 단계). |
+| 임베딩 | **LiteLLM 프록시 → VoyageAI `voyage-3.5`** (1024-dim) | `review_rag.py:LiteLLMEmbeddingFunction`. `.env`: `LITELLM_URL`, `LITELLM_API_KEY`, `EMBED_MODEL=voyage-3.5`, `EMBED_DIM=1024`. 배치 64. N100 위 LiteLLM 은 포워딩만 → CPU 부하 0. |
+| 분석 LLM (개발) | Ollama (llama3) | 로컬 실행, 비용 0원 |
+| 분석 LLM (배포 A) | OpenRouter API | GPU 없는 서버용 |
+| 분석 LLM (배포 B) | Ollama on RunPod | GPU 서버 원격 실행 |
+| 백엔드 | FastAPI + SQLAlchemy (asyncpg) + sse-starlette | 기존 FarmOS 스택 (SSE 스트리밍용 `sse-starlette.EventSourceResponse` 추가) |
 | 프론트엔드 | React + Vite + Recharts | 기존 FarmOS 스택 |
 | PDF 생성 | fpdf2 2.8.0 | 한글 폰트 지원 (맑은 고딕) |
 | 트렌드 분석 | Python statistics (내장) | 이동평균 + 표준편차 기반 이상 탐지 |
+
+### 2.1 임베딩 파이프라인 마이그레이션 이력
+
+| 시기 | 모델 | 차원 | 컬렉션 | 비고 |
+|------|------|:----:|--------|------|
+| 2026-04-10 ~ | ChromaDB 내장 `all-MiniLM-L6-v2` | 384 | `reviews_llama` | 영어 중심 모델로 한국어 유사도 부정확 → 교체 결정 |
+| 중간 단계 | Ollama `nomic-embed-text` / BGE-M3 (1024) | 1024 | `reviews_bge_m3` | 한국어 품질은 나아졌으나 N100 위 로컬 임베딩 CPU 부하 과다 |
+| **2026-04-23 현재** | **LiteLLM → VoyageAI `voyage-3.5`** | **1024** | **`reviews_voyage_v35`** | 외부 프록시, N100 부하 0. 컷오버 절차 runbook 참조. |
+
+> 컷오버 절차 및 구(舊) 컬렉션 정리 방법: `docs/runbooks/review-embedding-migration.md` (파일명 기준). `review_rag.py:55-59` Migration note 주석 참조.
 
 ---
 
@@ -69,25 +86,33 @@ LLM으로 감성분석/키워드추출/요약을 수행한다.
 └──────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 RAG 파이프라인
+### 3.2 RAG 파이프라인 (2026-04-23)
 
 ```
-[저장] 리뷰 텍스트 → ChromaDB.add() → 내장 임베딩 → 벡터 저장 (비용 0원)
-[검색] 자연어 질의 → ChromaDB.query() → 코사인 유사도 → 상위 N개 반환
-[분석] 검색된 리뷰 → LLM 1회 호출 → { 감성, 키워드, 요약 } JSON 반환
-[탐지] 분석 결과 → 이동평균 + 표준편차 → 이상 탐지 (LLM 불필요)
+[저장] DB(shop_reviews) → ReviewRAG.sync_from_db()
+         → LiteLLMEmbeddingFunction (HTTP → VoyageAI voyage-3.5)
+         → ChromaDB reviews_voyage_v35 (1024-dim)
+[검색] 자연어 질의 → 동일 임베딩 함수 → ChromaDB.query() → 코사인 유사도 → 상위 N
+[분석] 검색 or 층화샘플링(stratified by rating) → ReviewAnalyzer.analyze_batch()
+         → 분석용 LLM 1회 호출 → { 감성, 키워드, 요약 } JSON 반환
+[탐지] 분석 결과 → TrendDetector (이동평균 + 표준편차) → 이상 탐지 (LLM 불필요)
+[저장] review_analyses + review_sentiments INSERT
 ```
 
-### 3.3 LLM 추상화
+**샘플링 전략 (`review_analysis.py:_stratified_sample`)**: 전체 N 건 중 `sample_size` 건을 `rating` 분포를 유지하면서 추출 (예: 전체 5점이 60% 면 샘플도 60%). 기본 200, 최대 10,000 건. 분석 LLM 비용 선형성 확보.
+
+### 3.3 생성 LLM 추상화
 
 ```
 .env: LLM_PROVIDER=ollama|openrouter|ollama_remote
 
-get_llm_client()  ← 팩토리 함수
+get_llm_client()  ← 팩토리 함수 (core/llm_client_base.py)
   ├─ OllamaClient        (로컬, http://localhost:11434)
   ├─ OpenRouterClient     (클라우드, https://openrouter.ai/api/v1)
   └─ RemoteOllamaClient   (RunPod, OllamaClient 상속)
 ```
+
+> 분석용 LLM 만 이 추상화를 쓴다. 임베딩은 별도로 `LiteLLMEmbeddingFunction` 하나로 고정 — 차원 일관성이 ChromaDB 컬렉션 전체와 결합되므로 provider 를 런타임에 바꾸지 않는다 (§2.1 마이그레이션 이력 참조).
 
 ---
 
@@ -145,18 +170,37 @@ REVIEW_ANALYSIS_MAX_RETRIES=2
 
 ## 5. API 엔드포인트
 
-모든 엔드포인트는 JWT 인증(`farmos_token` 쿠키) 필요.
+<!-- Code Sync: 2026-04-23 -->
+
+모든 엔드포인트는 JWT 인증(`farmos_token` 쿠키, `Depends(get_current_user)`) 필요. 라우터 prefix: `/api/v1/reviews`.
 
 | Method | Endpoint | 설명 |
 |--------|----------|------|
-| POST | `/api/v1/reviews/embed` | Mock 리뷰 50건을 ChromaDB에 임베딩 저장 |
-| POST | `/api/v1/reviews/analyze` | LLM 감성분석 + 키워드 + 요약 실행 |
-| GET | `/api/v1/reviews/analysis` | 최신 분석 결과 조회 |
-| POST | `/api/v1/reviews/search` | RAG 의미 검색 (자연어 → 유사 리뷰) |
-| GET | `/api/v1/reviews/trends?period=weekly` | 트렌드/이상 탐지 데이터 |
-| GET | `/api/v1/reviews/report/pdf?analysis_id=N` | PDF 리포트 다운로드 |
-| GET | `/api/v1/reviews/settings` | 자동 분석 설정 조회 |
-| PUT | `/api/v1/reviews/settings` | 자동 분석 설정 변경 |
+| POST | `/embed` | `shop_reviews` 테이블에서 DB 동기화하여 ChromaDB에 임베딩 저장 (`sync_from_db`) |
+| **GET** | **`/embed/stream`** | **(2026-04-23 추가)** SSE 로 `sync_from_db_chunked` 진행률(청크 100건) 스트리밍 |
+| POST | `/analyze` | LLM 감성분석 + 키워드 + 요약 일괄 실행 |
+| **GET** | **`/analyze/stream`** | **(2026-04-23 추가)** SSE 로 분석 진행률 + 중간 결과 스트리밍. `batch_size` (5~100), `sample_size` (50~10000, 기본 200, 층화 샘플링) |
+| GET | `/analysis` | 최신 분석 결과 조회 |
+| POST | `/search` | RAG 의미 검색 (자연어 → 유사 리뷰) |
+| GET | `/trends?period=weekly` | 트렌드/이상 탐지 데이터 |
+| GET | `/report/pdf?analysis_id=N` | PDF 리포트 다운로드 |
+| GET | `/settings` | 자동 분석 설정 조회 |
+| PUT | `/settings` | 자동 분석 설정 변경 |
+
+### 5.1 SSE 진행률 payload
+
+```
+// /embed/stream 예시
+data: {"progress": 23, "message": "100/437 처리 중", "embedded": 100}
+
+// /analyze/stream 예시
+data: {"progress": 0, "message": "전체 9970건 중 200건 샘플링 → 분석 시작"}
+data: {"progress": 25, "message": "배치 1/4 완료", "batch_result": {...}}
+...
+data: {"progress": 100, "done": true}
+```
+
+EventSource 소비는 `frontend/src/hooks/useReviewAnalysis.ts` 에 있다.
 
 ---
 
@@ -462,15 +506,42 @@ LLM은 항상 완벽한 JSON을 반환하지 않으므로:
 
 ---
 
-## 9. 미구현 항목 (추후 작업)
+## 9. 미구현 항목 / 아카이브 Gap 후속 조치 (2026-04-23)
+
+<!-- Code Sync: 2026-04-23 -->
+
+### 9.1 미구현 — Phase 2 연기
+
+아카이브 설계 문서(`docs/archive/2026-04/farmos_review_analysis/farmos_review_analysis.design.md` §4.3, §4.4) 의 Gap G-01 ~ G-03 에 해당하는 항목은 모두 "Phase 2 연기" 로 관리된다. 현재 코드에는 구조만 있고 활성화되지 않음.
+
+| # | 항목 | 현재 상태 | 차단 원인 | 연기 사유 |
+|---|------|----------|----------|----------|
+| G-01 | **멀티테넌트 — 판매자 상품 필터** | 헬퍼 `_get_seller_product_ids()` 구조 있음 (`api/review_analysis.py:69-98`), 실제 호출 없음 | `shop_stores.owner_id` 컬럼 미존재 (주석 TODO) | owner_id 스키마 추가가 쇼핑몰 기능 범위에 포함 |
+| G-02 | **RAG 필터 메서드 `get_reviews_by_products()`** | 미구현 | G-01 에 의존 | G-01 선행 필요 |
+| G-03 | **자동 배치 스케줄러 (`core/review_scheduler.py`)** | 파일 없음. `POST /analyze` 수동 트리거 전용. | 비즈니스 판단 우선순위 낮음 | 현재 UI 수동 실행 + SSE 진행률로 UX 충분 |
+
+### 9.2 기타 미구현 (우선순위 Low)
 
 | 항목 | 우선순위 | 설명 |
 |------|:--------:|------|
-| SC-02 런타임 검증 | Medium | Ollama 실행 후 감성분석 정확도 80%+ 측정 |
-| 자동 배치 스케줄러 | Low | APScheduler 또는 BackgroundTasks로 주기적 자동 분석 |
-| `GET /analysis/{id}` | Low | 특정 분석 ID로 조회 (현재 최신만) |
-| DB 리뷰 연동 | Future | Mock → shop_reviews 테이블 직접 조회로 전환 |
-| 다국어 리뷰 분석 | Future | 영문 리뷰 지원 (ChromaDB 임베딩은 다국어 지원) |
+| SC-02 런타임 검증 | Medium | Ollama 실행 후 감성분석 정확도 80%+ 측정 (일부 수동 검증만 완료) |
+| `GET /analysis/{id}` | Low | 특정 분석 ID로 조회 (현재 최신만 `/analysis` 노출) |
+| 다국어 리뷰 분석 | Future | 영문 리뷰 지원 (Voyage v3.5 는 다국어 지원이므로 분석 LLM 프롬프트만 확장하면 됨) |
+
+### 9.3 완료 (본 문서 2026-04-10 작성 당시 미구현으로 기록됐던 항목)
+
+| 항목 | 완료 시점 | 비고 |
+|------|-----------|------|
+| DB 리뷰 연동 (Mock → shop_reviews 실연동) | 2026-04-* | `ReviewRAG.sync_from_db()`, `sync_from_db_chunked()` 구현 완료. 9,970건 seed. |
+| 임베딩 품질 (한국어) | 2026-04-23 | Voyage v3.5 1024-dim 으로 마이그레이션 완료. |
+
+### 9.4 에러 처리 및 재시도 정책
+
+| 계층 | 정책 |
+|------|------|
+| LLM 응답 파싱 | 3단계 전략: (1) 직접 `json.loads` → (2) ` ```json ... ``` ` 블록 추출 → (3) 첫 `{` ~ 마지막 `}` 구간 추출. 실패 시 최대 **2회 재시도** (`REVIEW_ANALYSIS_MAX_RETRIES=2`). 재시도 소진 시 partial 결과 반환 (`review_analyzer.py`). |
+| 임베딩 배치 실패 | 현재 배치 단위 rollback. 영벡터 합성 금지(컬렉션 오염 방지). 호출자에게 예외 전파 (`review_rag.py:106-110`). |
+| DB 동기화 | `sync_from_db_chunked` 는 LIMIT/OFFSET 페이지네이션 + 중복 제거 (`review_rag.py:423+`). |
 
 ---
 

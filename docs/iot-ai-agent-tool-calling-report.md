@@ -181,9 +181,28 @@ ESP8266 (DHT11 + CdS, 30초 간격)
 
 ---
 
-## 8. 향후 계획
+## 8. 향후 계획 / 후속 작업 결과
 
-- [ ] LangChain 래핑 레이어 추가 (팀원 협업용)
-- [ ] 기상청 단기예보 API 연동 (현재 mock 예보)
-- [ ] 제어 이력 PostgreSQL 영속화 (현재 인메모리)
-- [ ] 프론트엔드: 수동 오버라이드 UI 완성 (현재 view-only)
+<!-- Code Sync: 2026-04-23 -->
+
+### 8.1 완료 (2026-04-23 기준 production)
+
+| 항목 | 완료 시점 | 결과 / 관련 문서 |
+|------|-----------|-----------------|
+| **제어 이력 PostgreSQL 영속화** | 2026-04-20 | Relay `iot_agent_decisions` 테이블 + `add_agent_decision()` · `list_agent_decisions()` · `get_agent_decision()` (`iot_relay_server/app/store.py`, DDL: `iot-relay-server-postgres-patch.md §10.1`). FarmOS 는 30일 미러(`ai_agent_decisions`) + 일/시간 요약 유지. |
+| **FarmOS 연동 (SSE Bridge)** | 2026-04-20 | `backend/app/services/ai_agent_bridge.py` — SSE 상시 구독 + HTTP backfill + exponential backoff + 멱등 UPSERT. `AI_AGENT_BRIDGE_ENABLED` 플래그로 on/off. `agent-action-history` feature 로 별도 Design/Plan/Analysis/Report 보유. |
+| **프론트엔드: 수동 제어 UI** | 2026-04-16 | `iot-manual-control` feature — `ManualControlPanel.tsx` + `useManualControl.ts` + `control_store.py` + `control_routes.py`. 시뮬레이션 모드(`POST /control/report` 직접 호출) 로 하드웨어 없이도 양방향 흐름 검증 가능. 상세는 `docs/02-design/features/iot-manual-control.design.md`. |
+| **판단 이력 FE 모달** | 2026-04-20 | `AIDecisionDetailModal.tsx` + `AIActivitySummaryCards.tsx` + `useAIAgent` 확장 (2-base 패턴: Relay 토글 + FarmOS 결정 조회). cursor 기반 더보기, row 클릭 시 tool_calls·sensor_snapshot 표시. |
+
+### 8.2 미완료 / 유보
+
+| 항목 | 상태 | 사유 |
+|------|:----:|------|
+| LangChain 래핑 레이어 | ⏸ 보류 | 현재 OpenAI SDK 직접 호출로 충분. 팀 규모 확대 전까지 YAGNI. |
+| 기상청 단기예보 API 연동 | ⏸ 보류 | KMA 초단기실황은 연동됨 (`weather_client.py`). 단기예보는 현재 mock 보충으로 판단 품질 저하 체감되면 재검토. |
+
+### 8.3 후속 feature (별도 PDCA 사이클)
+
+- `agent-action-history` (2026-04-20, 아카이브 완료) — 판단 영속화 + FE 상세 모달
+- `iot-manual-control` (2026-04-16, 아카이브 완료) — 양방향 제어 + 시뮬레이션 모드
+- `esp8266-led-sync` (2026-04-*, 아카이브 완료) — 하드웨어 LED 동기화

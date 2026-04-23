@@ -1,6 +1,7 @@
 # IoT 중계 서버 구축 계획 (N100 서버)
 
 > **업데이트 이력**
+> - 2026-04-23 (Code Sync): Relay 는 센서·관수·알림 외에 **AI Agent** (§4.2) 및 **수동 제어** (§4.3) 엔드포인트, **SSE 스트림** (§4.4) 를 제공하는 상태로 통합되어 있다. 본 섹션 추가는 현재 production 코드와 문서 정합을 위한 것이며, 엔드포인트 목록/SSE 이벤트/AI 판단 영속화 스키마는 §10 (postgres-patch) 및 `iot-ai-agent-tool-calling-report.md` 와 함께 읽는다.
 > - 2026-04-21: FarmOS 로컬 DB의 레거시 IoT 테이블(`iot_sensor_readings` / `iot_sensor_alerts` / `iot_irrigation_events`)과
 >   관련 엔드포인트(`/api/v1/sensors*`, `/api/v1/irrigation/*`) **완전 제거**. IoT 센서·알림·관수 데이터의
 >   SSoT는 이제 Relay 전용 `iotdb` 단일 저장소이며, FarmOS DB는 AI 판단 미러(`ai_agent_decisions` 외 2개)만 보관한다.
@@ -92,6 +93,10 @@ iot_relay_server/
 
 ## 4. 주요 엔드포인트
 
+<!-- Code Sync: 2026-04-23 -->
+
+### 4.1 센서 / 관수 / 알림 (ESP8266 및 FE 공개)
+
 | Method | Path | 인증 | 용도 |
 |--------|------|------|------|
 | POST | `/api/v1/sensors` | X-API-Key | ESP8266 데이터 수신 → `iot_sensor_readings` insert |
@@ -106,6 +111,61 @@ iot_relay_server/
 > GET 엔드포인트는 JWT 인증 없이 공개 (시연용).
 > POST /sensors만 API Key로 보호.
 > 응답 JSON shape(camelCase)은 기존 인메모리 버전과 동일 → 프론트 회귀 없음.
+
+### 4.2 AI Agent (2026-04-14 Tool Calling 전환 이후)
+
+상세 구현 기록은 `docs/iot-ai-agent-tool-calling-report.md`, Relay 측 DDL·핸들러·영속화는 `§10` 참고.
+
+| Method | Path | 인증 | 용도 |
+|--------|------|------|------|
+| GET | `/api/v1/ai-agent/status` | 없음 | Agent 상태 + 현재 제어값 + 최신 판단 스냅샷 |
+| GET | `/api/v1/ai-agent/decisions` | 없음 | 판단 이력 (cursor pagination: `cursor`, `limit`, `control_type`, `source`, `priority`, `since`). FarmOS Bridge 가 backfill 시 호출하는 계약 |
+| GET | `/api/v1/ai-agent/decisions/{id}` | 없음 | 판단 단건 상세 (DetailModal 소비) |
+| POST | `/api/v1/ai-agent/toggle` | 없음 | Agent ON/OFF 전환 |
+| GET | `/api/v1/ai-agent/crop-profile` | 없음 | 작물 프로필 + 프리셋 |
+| PUT | `/api/v1/ai-agent/crop-profile` | 없음 | 작물 프로필 수정 |
+| POST | `/api/v1/ai-agent/override` | 없음 | 수동 오버라이드 |
+| POST | `/api/v1/ai-agent/test-trigger` | 없음 | 디버그용 수동 트리거 |
+
+> AI Agent 판단 영속화 테이블(`iot_agent_decisions`) 및 판단 생성 훅은 §10 에 규정. 판단 `id` 는 Relay 에서 UUID 로 생성되고, FarmOS Bridge 는 이 `id` 를 PK 로 그대로 재사용한다 — At-Least-Once with Idempotent Upsert (`ON CONFLICT (id) DO NOTHING`).
+
+### 4.3 수동 제어 (iot-manual-control)
+
+상세 설계는 `docs/02-design/features/iot-manual-control.design.md` 참조. 제어 상태는 `control_store.py` 의 인메모리 + 파일 영속화(`control_state.json`) 로 관리된다.
+
+| Method | Path | 인증 | 용도 |
+|--------|------|------|------|
+| POST | `/api/v1/control` | 없음 | 프론트엔드 제어 명령 전송 (ventilation/irrigation/lighting/shading) |
+| GET | `/api/v1/control/state` | 없음 | 현재 제어 상태 조회 (4종 전체) |
+| GET | `/api/v1/control/commands` | X-API-Key | ESP8266 대기 명령 폴링 |
+| POST | `/api/v1/control/report` | X-API-Key | ESP8266 버튼/LED 상태 보고 (source="button") |
+| POST | `/api/v1/control/ack` | X-API-Key | ESP8266 명령 수신 확인 (큐 클리어) |
+
+### 4.4 SSE 스트림
+
+단일 SSE 엔드포인트 `GET /api/v1/sensors/stream` 이 여러 이벤트 타입을 발행한다. 프론트엔드(`frontend/src/hooks/useSensorData.ts`) 는 이 단일 연결을 재사용해 센서·관수·알림·제어·AI 판단을 모두 수신한다.
+
+| Event | Payload (요약) | 발행 시점 | 소비 컴포넌트 |
+|-------|---------------|----------|---------------|
+| `sensor` | 최신 reading (camelCase) | `POST /sensors` 수신 후 store insert 완료 시 | 센서 카드 / 그래프 |
+| `alert` | SensorAlert row | 임계치 초과로 alert insert 시 | 알림 리스트 |
+| `irrigation` | IrrigationEvent row | 관개 이벤트 insert 시 | 관수 이력 |
+| `control` | `{control_type, state, source, timestamp}` | `POST /control` 또는 `POST /control/report` 후 | ManualControlPanel |
+| `ai_decision` | `AIDecision` (id/reason/action/tool_calls/sensor_snapshot/duration_ms) | AI Engine 판단 완료 **+ DB insert 완료 후** | AIAgentPanel, FarmOS Bridge Worker |
+
+**중요한 순서 불변식 (§10.4 와 `iot-ai-agent-implementation.md` §13 에도 기술)**:
+
+```
+[판단 생성] → [iot_agent_decisions INSERT] → [SSE broadcast("ai_decision")]
+```
+
+SSE 가 persist 보다 먼저 나가면 FarmOS Bridge 의 `ON CONFLICT (id) DO NOTHING` UPSERT 는 성공하지만, Relay 재기동 시 backfill 대상이 영속 데이터에서 누락되어 `tool_calls` 트레이스가 영구 손실될 수 있다.
+
+### 4.5 헬스체크
+
+| Method | Path | 용도 |
+|--------|------|------|
+| GET | `/health` | `{storage, readings_count, irrigation_events_count, alerts_count}` 반환 |
 
 ---
 

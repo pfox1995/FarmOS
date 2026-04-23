@@ -1,5 +1,7 @@
 # FarmOS Backend Architecture
 
+<!-- Code Sync: 2026-04-23 -->
+
 ## 기술 스택
 
 | 항목 | 기술 | 버전 |
@@ -9,11 +11,14 @@
 | 웹 프레임워크 | FastAPI | 0.135.2 |
 | 설정 관리 | pydantic-settings | 2.13.1 |
 | ASGI 서버 | uvicorn | 0.42.0 |
-| 데이터 저장 (인증) | PostgreSQL 18 | asyncpg |
-| 데이터 저장 (IoT) | **PostgreSQL 18** (`iot_` 접두사 테이블) | asyncpg |
+| 데이터 저장 (인증 / 쇼핑몰 / AI 판단 미러) | PostgreSQL 18 | asyncpg |
+| IoT 센서·관수·알림 SSoT | **N100 Relay 전용 `iot-postgres` 컨테이너 (`iotdb`)** | Relay asyncpg |
+| Vector DB (리뷰 임베딩) | ChromaDB (LiteLLM → Voyage v3.5) | 컬렉션 `reviews_voyage_v35` |
+| SSE (임베딩/분석 진행률) | sse-starlette | `EventSourceResponse` |
 
-> 2026-04-20 IoT 저장소를 인메모리(`deque` / `list`)에서 PostgreSQL로 전환.
-> 사용자 인증 / IoT 센서 모두 PostgreSQL `farmos` DB에 영속 저장되며 접두사로 구분한다(`iot_*`, 인증 `users`, 쇼핑몰 `shop_*`).
+> **2026-04-21**: FarmOS 로컬 DB 의 `iot_sensor_readings` / `iot_sensor_alerts` / `iot_irrigation_events` 테이블과 `/api/v1/sensors*` · `/api/v1/irrigation/*` 엔드포인트는 **완전 제거**됐다. 아래 §IoT PostgreSQL 저장소 / §API 엔드포인트 / §자동 관개 트리거 / §데이터 흐름 섹션은 **레거시 기록**으로, 현재 IoT 센서 데이터는 전적으로 Relay (`iot-postgres`) 가 SSoT 다. 상세 이전 경로는 `iot-relay-server-plan.md` 참조.
+> **2026-04-20**: IoT 저장소를 인메모리(`deque` / `list`)에서 PostgreSQL로 전환 (Relay 측 패치 §iot-relay-server-postgres-patch.md).
+> 접두사 규칙: 인증 `users`, 쇼핑몰 `shop_*`, AI 판단 미러 `ai_agent_*` (30일 TTL), 리뷰 분석 `review_analyses` / `review_sentiments`.
 
 ---
 
@@ -49,9 +54,11 @@ backend/
 
 ---
 
-## IoT PostgreSQL 저장소 (`app/core/store.py`)
+## IoT PostgreSQL 저장소 (`app/core/store.py`) [LEGACY — 2026-04-21 제거됨]
 
-3개 테이블을 SQLAlchemy 2.0 async ORM으로 다룬다. 모델 정의는 `app/models/iot.py`.
+> **LEGACY 기록**: 아래 설명은 2026-04-20 ~ 2026-04-21 짧은 기간 동안 FarmOS 로컬 BE 가 IoT 테이블을 보관했을 때의 내용이다. 2026-04-21 이후 로컬 IoT 테이블·라우터·모델은 `backend/scripts/drop_iot_legacy_tables.sql` 로 완전 제거됐고, IoT 데이터는 N100 Relay `iot-postgres` 가 유일한 SSoT 다. 이 섹션은 히스토리 참조 용도로만 남긴다.
+
+3개 테이블을 SQLAlchemy 2.0 async ORM으로 다뤘다. 모델 정의는 `app/models/iot.py` (제거됨).
 
 | 테이블 | 주요 컬럼 | 설명 |
 |--------|----------|------|
@@ -86,22 +93,25 @@ Base URL: `/api/v1`
 }
 ```
 
-### Sensors
+### Sensors / Irrigation [LEGACY — 2026-04-21 제거됨]
 
-| 메서드 | 경로 | 설명 | 파라미터 |
-|--------|------|------|----------|
-| `POST` | `/sensors` | ESP8266 센서 데이터 수신 | body: `SensorDataIn` |
-| `GET` | `/sensors/latest` | 최신 센서 값 1건 | - |
-| `GET` | `/sensors/history` | 센서 데이터 목록 (시간순) | `limit` (1~2000, 기본 300) |
-| `GET` | `/sensors/alerts` | 알림 목록 | `resolved` (optional) |
-| `PATCH` | `/sensors/alerts/{alert_id}/resolve` | 알림 해결 처리 | - |
+> 이 엔드포인트들은 FarmOS BE 에서 제거됐다. 현재 FE(`useSensorData.ts`) 는 Relay (`http://iot.lilpa.moe:9000/api/v1/sensors*`, `/irrigation/*`) 를 직접 호출한다. 계약 명세는 `iot-relay-server-plan.md §4.1` 참조.
 
-### Irrigation
+### Review Analysis (`/reviews/*`, 2026-04-10 이후)
 
-| 메서드 | 경로 | 설명 | 파라미터 |
-|--------|------|------|----------|
-| `POST` | `/irrigation/trigger` | 수동 관개 밸브 제어 | body: `IrrigationTriggerIn` |
-| `GET` | `/irrigation/events` | 관개 이력 (최신순) | - |
+| 메서드 | 경로 | 설명 | 비고 |
+|--------|------|------|------|
+| `POST` | `/reviews/embed` | `shop_reviews` → ChromaDB 동기화 | `ReviewRAG.sync_from_db()` |
+| `GET` | `/reviews/embed/stream` | SSE 임베딩 진행률 | 2026-04-23 추가 |
+| `POST` | `/reviews/analyze` | LLM 3가지 분석 실행 | 감성/키워드/요약 |
+| `GET` | `/reviews/analyze/stream` | SSE 분석 진행률 + 중간 결과 | 층화 샘플링 (200, 최대 10000) |
+| `GET` | `/reviews/analysis` | 최신 분석 결과 | |
+| `POST` | `/reviews/search` | RAG 의미 검색 | |
+| `GET` | `/reviews/trends?period=weekly` | 트렌드/이상 탐지 | |
+| `GET` | `/reviews/report/pdf?analysis_id=N` | PDF 다운로드 | fpdf2 + 한글 폰트 |
+| `GET`/`PUT` | `/reviews/settings` | 자동 분석 설정 | 멀티테넌트/스케줄러 **Phase 2 연기** |
+
+모두 세션 인증. 상세: `docs/iot-review-analysis-implementation.md`.
 
 ### AI Agent (agent-action-history, 2026-04-20)
 
@@ -163,7 +173,15 @@ lifespan 기동 (AI_AGENT_BRIDGE_ENABLED=True 일 때만)
 
 ---
 
-## 데이터 흐름
+## 데이터 흐름 [LEGACY — 현재는 Relay 직결]
+
+> 아래 다이어그램은 2026-04-20 FarmOS 로컬 BE 가 IoT 중계를 겸했을 때의 흐름이다. 현재(2026-04-23)는 다음과 같다:
+>
+> ```
+> ESP8266 ── POST ──▶ N100 Relay (iot-postgres) ── SSE/GET ──▶ React 프론트
+>                               │
+>                               └── AI decision ── SSE/GET ──▶ FarmOS BE (ai_agent_bridge → ai_agent_decisions mirror) ──▶ FE
+> ```
 
 ```
 ┌─────────────────┐     HTTP POST       ┌──────────────────┐     GET        ┌──────────────┐
@@ -207,9 +225,11 @@ snake→camelCase 변환은 `store.py`의 `add_reading()`에서 저장 시점에
 
 ---
 
-## 자동 관개 트리거 로직
+## 자동 관개 트리거 로직 [LEGACY — Relay 로 이관]
 
-`POST /api/v1/sensors` 수신 시 자동 실행:
+> FarmOS `/sensors` POST 는 제거됐다. 자동 관개 규칙(`soil_moisture < 55%` → IrrigationEvent + Alert, `humidity > 90%` → Alert)은 현재 Relay `iot_relay_server/app/store.py` 에 이식되어 있다.
+
+레거시 동작 (FarmOS BE): `POST /api/v1/sensors` 수신 시 자동 실행:
 
 | 조건 | 동작 |
 |------|------|

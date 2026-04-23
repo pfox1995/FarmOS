@@ -3,8 +3,9 @@
 > **Feature**: iot-manual-control
 > **Architecture**: Option C — Pragmatic Balance
 > **Plan Reference**: `docs/01-plan/features/iot-manual-control.plan.md`
-> **Date**: 2026-04-16
-> **Status**: Draft
+> **Date**: 2026-04-16 (Code Sync: 2026-04-23)
+> **Status**: **Production (Software-First 단계 완료)** — Relay `control_store.py` / `control_routes.py` / `main.py` 라우터 등록 + FE `ManualControlPanel.tsx` / `useManualControl.ts` / `useSensorData.ts` SSE control 이벤트 소비 구현 완료. ESP8266 펌웨어 폴링 루프 구현 완료 (`HARDWARE_BUTTONS_ENABLED=false` 상태로 빌드). 브레드보드 배선은 아직 미구성 — Phase 별 하드웨어 테스트(§8.2) 는 회로 구성 후 수행.
+> **Archive**: `docs/archive/2026-04/manual-control-onoff/` (plan/design/analysis/report 완료 스냅샷)
 
 ---
 
@@ -938,3 +939,4 @@ curl http://iot.lilpa.moe:9000/api/v1/control/state
 | Version | Date | Changes | Author |
 |---------|------|---------|--------|
 | 0.1 | 2026-04-16 | Initial draft — Option C (Pragmatic Balance) | clover0309 |
+| 0.2 | 2026-04-23 | Code Sync — Status 를 Production 으로 상향. Relay `control_store.py` 영속화(`control_state.json` 파일) 와 `control_routes.py` 5개 엔드포인트는 `iot-relay-server-plan.md §4.3` 에 공식 엔드포인트로 등록됨. FE 시뮬레이션 모드(`simulateButton` → `POST /control/report`) 동작 확인. ESP8266 폴링 루프는 `HARDWARE_BUTTONS_ENABLED` 컴파일 플래그로 비활성 상태 유지. | clover0309 |
