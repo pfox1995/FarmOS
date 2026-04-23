@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams, useParams as useReactRouterParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MdSend, MdArrowBack, MdRefresh, MdSmartToy, MdPerson } from 'react-icons/md';
@@ -186,9 +186,12 @@ export default function DiagnosisChatPage() {
         }));
         
         setMessages(dbMessages);
+      } else {
+        toast.error("채팅 내역을 불러오는데 실패했습니다.");
       }
     } catch (err) {
       console.error("채팅 내역 조회 실패:", err);
+      toast.error("채팅 내역을 불러오는데 실패했습니다. 서버 연결을 확인해주세요.");
     } finally {
       setIsLoading(false);
     }
@@ -413,8 +416,5 @@ export default function DiagnosisChatPage() {
         <p className="text-[10px] text-center text-gray-400 mt-2">AI 진단 결과에 따라 전문가와 상의 후 조치를 취하십시오.</p>
       </div>
     </div>
-  );
-}
-</div>
   );
 }
