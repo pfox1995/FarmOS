@@ -26,6 +26,7 @@ dependencies = [
     "sentence-transformers>=3.3.0",
     "sqlalchemy[asyncio]>=2.0.48",
     "sse-starlette>=3.3.4",
+    "tzdata>=2026.1",
     "uvicorn[standard]>=0.42.0",
 ]
 
