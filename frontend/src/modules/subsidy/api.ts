@@ -11,13 +11,36 @@ const API_BASE = 'http://localhost:8000/api/v1/subsidy';
 
 export type EligibilityStatus = 'eligible' | 'ineligible' | 'needs_review';
 
+export interface Reason {
+  text: string;
+  source: string | null;
+}
+
+export interface SourceClause {
+  tag: string;
+  text: string;
+}
+
+export interface PaymentStep {
+  description: string;
+  amount_krw: number;
+}
+
+export interface PaymentCalculation {
+  total_krw: number;
+  steps: PaymentStep[];
+  note: string | null;
+}
+
 export interface EligibilityResult {
   subsidy_code: string;
   subsidy_name: string;
   status: EligibilityStatus;
-  reasons: string[];
+  reasons: Reason[];
   estimated_amount_krw: number | null;
   source_articles: string[];
+  source_clauses: SourceClause[];
+  payment_calculation: PaymentCalculation | null;
 }
 
 export interface MatchResponse {

@@ -14,6 +14,7 @@ import {
   type Citation,
   type EligibilityResult,
   type MatchResponse,
+  type PaymentCalculation,
   type SubsidyAskResponse,
   askSubsidy,
   fetchMatch,
@@ -210,7 +211,7 @@ function SubsidyCard({
           )}
           {result.reasons.length > 0 && (
             <p className="text-sm text-gray-700 mt-2 line-clamp-2">
-              {result.reasons[0]}
+              {result.reasons[0].text}
             </p>
           )}
         </div>
@@ -259,6 +260,9 @@ function DetailDrawer({
             <p className="text-2xl font-bold text-primary">
               {formatKrw(result.estimated_amount_krw)}
             </p>
+            {result.payment_calculation && (
+              <PaymentBreakdown calc={result.payment_calculation} />
+            )}
           </div>
         )}
 
@@ -266,20 +270,44 @@ function DetailDrawer({
           <h3 className="font-semibold text-gray-900">판정 사유</h3>
           <ul className="space-y-2 text-sm text-gray-700">
             {result.reasons.map((reason, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-gray-400 flex-shrink-0">•</span>
-                <span>{reason}</span>
+              <li key={i} className="flex gap-2 items-start">
+                <span className="text-gray-400 flex-shrink-0 leading-relaxed">•</span>
+                <span className="flex-1 leading-relaxed">
+                  {reason.text}
+                  {reason.source && (
+                    <span className="ml-2 inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded-md bg-primary text-white shadow-sm align-middle whitespace-nowrap">
+                      {reason.source}
+                    </span>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
         </div>
 
-        {result.source_articles.length > 0 && (
+        {(result.source_clauses.length > 0 || result.source_articles.length > 0) && (
           <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-xs text-gray-500">출처</p>
-            <p className="text-sm text-gray-700 mt-1">
-              {result.source_articles.join(' · ')}
-            </p>
+            <p className="text-xs font-semibold text-gray-500 mb-2">출처</p>
+            {result.source_articles.length > 0 && (
+              <p className="text-sm text-gray-700 mb-3">
+                {result.source_articles.join(' · ')}
+              </p>
+            )}
+            {result.source_clauses.length > 0 && (
+              <ul className="space-y-2">
+                {result.source_clauses.map((clause) => (
+                  <li
+                    key={clause.tag}
+                    className="flex gap-2 items-start text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <span className="inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded-md bg-primary text-white shadow-sm whitespace-nowrap flex-shrink-0 mt-0.5">
+                      {clause.tag}
+                    </span>
+                    <span className="flex-1 leading-relaxed">{clause.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
@@ -287,6 +315,39 @@ function DetailDrawer({
           실제 지급은 농업경영체 등록·현장 확인 등 정식 절차를 거쳐 확정됩니다.
         </div>
       </div>
+    </div>
+  );
+}
+
+// 예상 수령액의 계산식 표시 (fixed 는 1줄, tiered 는 구간별 여러 줄).
+// 총액은 이미 상단에 크게 표시되므로 여기서는 내역과 합만 작게 보여 준다.
+function PaymentBreakdown({ calc }: { calc: PaymentCalculation }) {
+  return (
+    <div className="mt-3 pt-3 border-t border-primary/20 space-y-2">
+      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+        계산 내역
+      </p>
+      <ul className="space-y-1.5">
+        {calc.steps.map((step, i) => (
+          <li key={i} className="flex items-start justify-between gap-3 text-xs">
+            <span className="text-gray-700 leading-relaxed flex-1">
+              {step.description}
+            </span>
+            <span className="text-gray-900 font-semibold whitespace-nowrap">
+              {formatKrw(step.amount_krw)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {calc.steps.length > 1 && (
+        <div className="flex items-center justify-between pt-1.5 border-t border-gray-200 text-xs">
+          <span className="font-semibold text-gray-700">합계</span>
+          <span className="font-bold text-primary">{formatKrw(calc.total_krw)}</span>
+        </div>
+      )}
+      {calc.note && (
+        <p className="text-[11px] text-gray-500 leading-relaxed pt-1">※ {calc.note}</p>
+      )}
     </div>
   );
 }
@@ -311,10 +372,25 @@ function AskModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // 닫기 확인: 답변이 이미 표시되어 있거나, 입력창에 질문이 작성 중이거나,
+  // LLM 호출이 진행 중일 때만 한 번 더 확인한다. 빈 상태에서는 바로 닫는다.
+  const requestClose = () => {
+    const hasUnsavedInput = question.trim().length > 0;
+    const hasResponse = response !== null;
+    if (!loading && !hasUnsavedInput && !hasResponse) {
+      onClose();
+      return;
+    }
+    const msg = loading
+      ? '답변 생성 중입니다. 지금 닫으면 결과를 볼 수 없습니다. 닫으시겠어요?'
+      : '현재 작성/조회 중인 내용이 있습니다. 창을 닫으시겠어요?';
+    if (window.confirm(msg)) onClose();
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+      onClick={requestClose}
     >
       <div
         className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col"
@@ -324,7 +400,7 @@ function AskModal({ onClose }: { onClose: () => void }) {
           <h2 className="text-lg font-bold text-gray-900">
             시행지침 질문하기
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-1">
+          <button onClick={requestClose} className="text-gray-400 hover:text-gray-700 p-1">
             <MdClose className="text-2xl" />
           </button>
         </div>
@@ -362,11 +438,7 @@ function AskModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {loading && (
-            <div className="text-center text-gray-500 py-8">
-              시행지침에서 관련 조항을 찾고 답변을 생성하는 중...
-            </div>
-          )}
+          {loading && <LlmLoadingIndicator />}
         </div>
 
         <div className="p-4 border-t border-gray-100 flex gap-2">
@@ -388,6 +460,27 @@ function AskModal({ onClose }: { onClose: () => void }) {
             <span className="hidden sm:inline">전송</span>
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// LLM 응답 대기 중 표시. 3 단계 stepper + 스켈레톤으로 "동작 중" 인식을 준다.
+function LlmLoadingIndicator() {
+  return (
+    <div className="space-y-4 py-4" role="status" aria-live="polite">
+      <div className="flex items-center justify-center gap-3 text-primary">
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }} />
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '150ms' }} />
+        <span className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse" style={{ animationDelay: '300ms' }} />
+      </div>
+      <p className="text-center text-sm text-gray-600">
+        시행지침에서 근거 조항을 찾고 답변을 작성하고 있습니다...
+      </p>
+      <div className="space-y-2 mx-auto max-w-md">
+        <div className="h-3 bg-gray-200 rounded animate-pulse" />
+        <div className="h-3 bg-gray-200 rounded animate-pulse w-5/6" />
+        <div className="h-3 bg-gray-200 rounded animate-pulse w-4/6" />
       </div>
     </div>
   );

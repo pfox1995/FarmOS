@@ -73,18 +73,68 @@ class SubsidyDetail(BaseModel):
 # ── 자격 판정 결과 ─────────────────────────────────────────
 
 
+class Reason(BaseModel):
+    """판정 사유 한 줄 + 근거 조항 태그.
+
+    `source` 는 시행지침 소단원 식별자 (예: "II-3", "II-3 ⑤").
+    UI 에서 reason 옆에 작은 chip 으로 표시되어 사용자가 근거를 추적할 수 있게 한다.
+    None 일 경우 UI 는 chip 을 숨긴다 (집계성 메시지 등).
+    """
+
+    text: str
+    source: str | None = None
+
+
+class SourceClause(BaseModel):
+    """판정에 인용된 시행지침 소단원의 (태그, 본문) 쌍.
+
+    예: tag="II-3 ⑤", text="신청자 개인 농업 외 종합소득 2,000만원 미만".
+    EligibilityResult.reasons 에 등장한 source 태그 중 unique 한 것만 채워진다.
+    """
+
+    tag: str
+    text: str
+
+
+class PaymentStep(BaseModel):
+    """지급액 계산의 한 줄 (fixed 의 경우 1줄, tiered 는 구간별 N줄)."""
+
+    description: str
+    amount_krw: int
+
+
+class PaymentCalculation(BaseModel):
+    """예상 수령액의 계산 내역.
+
+    - fixed 지급: steps 에 "정액 지급" 한 줄, note 로 면적 무관 설명.
+    - tiered_by_area: steps 에 각 면적구간별 계산 한 줄씩, note 로 구간 정책 설명.
+    """
+
+    total_krw: int
+    steps: list[PaymentStep] = []
+    note: str | None = None
+
+
 class EligibilityResult(BaseModel):
     """단일 지원금에 대한 자격 판정 결과."""
 
     subsidy_code: str
     subsidy_name: str
     status: Literal["eligible", "ineligible", "needs_review"]
-    reasons: list[str] = Field(
+    reasons: list[Reason] = Field(
         default_factory=list,
-        description="해당/비해당 사유 (사용자 안내용)",
+        description="해당/비해당 사유 (사용자 안내용, 각 항목은 근거 조항 태그 포함 가능)",
     )
     estimated_amount_krw: int | None = None
     source_articles: list[str] = []
+    source_clauses: list[SourceClause] = Field(
+        default_factory=list,
+        description="판정에 실제 인용된 시행지침 소단원 (tag, 본문) — 출처 섹션 표시용",
+    )
+    payment_calculation: PaymentCalculation | None = Field(
+        default=None,
+        description="예상 수령액 계산 내역 — eligible/needs_review 에서만 채워짐",
+    )
 
 
 class MatchResponse(BaseModel):

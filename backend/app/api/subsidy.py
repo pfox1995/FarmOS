@@ -19,6 +19,17 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    InternalServerError,
+    NotFoundError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -104,12 +115,53 @@ async def ask_subsidy(
     )
     try:
         answer = await _call_llm(SUBSIDY_SYSTEM_PROMPT, user_prompt)
-    except Exception as e:
-        logger.exception(f"LLM 호출 실패: {e}")
+    except RuntimeError as e:
+        # 우리 쪽 설정 누락 (예: LITELLM_API_KEY 미설정) — 배포/운영 버그
+        logger.error(f"LLM 설정 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"서버 설정 오류: {e}") from e
+    except (
+        AuthenticationError,
+        PermissionDeniedError,
+        BadRequestError,
+        NotFoundError,
+    ) as e:
+        # 업스트림이 우리 요청을 거절 — 모델명/키/권한 설정이 틀렸다는 뜻.
+        # 재시도해도 똑같이 실패하므로 503 이 아니라 502 (Bad Gateway) 로 표시한다.
+        logger.error(f"LLM 설정/요청 오류 ({type(e).__name__}): {e}")
         raise HTTPException(
-            status_code=503,
-            detail="답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            status_code=502,
+            detail=(
+                f"LLM 공급자가 요청을 거절했습니다. 설정을 확인하세요 "
+                f"({type(e).__name__} {getattr(e, 'status_code', '?')}: {str(e)[:200]})"
+            ),
         ) from e
+    except (
+        APITimeoutError,
+        APIConnectionError,
+        RateLimitError,
+        InternalServerError,
+    ) as e:
+        # 일시적 장애 (네트워크 끊김, 상류 5xx, 레이트리밋). 재시도 가치 있음.
+        # 타임아웃은 504, 그 외는 503. 레이트리밋이면 Retry-After 안내 포함.
+        logger.warning(f"LLM 일시 장애 ({type(e).__name__}): {e}")
+        status = 504 if isinstance(e, APITimeoutError) else 503
+        headers = {"Retry-After": "5"} if isinstance(e, RateLimitError) else None
+        raise HTTPException(
+            status_code=status,
+            detail="답변 생성 중 일시적 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            headers=headers,
+        ) from e
+    except APIStatusError as e:
+        # 위에서 못 잡은 기타 HTTP 에러. status_code 그대로 전파해 계층 혼동을 줄인다.
+        logger.error(f"LLM HTTP {e.status_code}: {e}")
+        raise HTTPException(
+            status_code=502 if e.status_code < 500 else 503,
+            detail="답변 생성 중 상류 오류가 발생했습니다.",
+        ) from e
+    except Exception as e:
+        # 정말 예상 못한 에러. 503 으로 숨기지 말고 500 으로 드러낸다.
+        logger.exception(f"LLM 호출 중 예상 못한 오류: {e}")
+        raise HTTPException(status_code=500, detail="내부 오류") from e
 
     return SubsidyAskResponse(
         question=req.question,
@@ -155,10 +207,13 @@ def _format_profile_summary(profile) -> str:
 async def _call_llm(system_prompt: str, user_prompt: str) -> str:
     """공익직불 전용 LLM 호출. LiteLLM 프록시 경유 (팀 API 사용량 통합 추적).
 
-    diagnosis.py 와 동일한 컨벤션:
+    설정 노트:
       - settings.LITELLM_API_KEY / settings.LITELLM_URL 사용
       - async with httpx.AsyncClient 로 커넥션 누수 방지
-      - model_kwargs.extra_body.reasoning.exclude=True 로 reasoning 토큰 출력 제외
+      - reasoning 파라미터는 전달하지 않는다. gpt-5-nano 처럼 effort="minimal" 을
+        존중하는 모델도 있지만, gemma-4-31b-it (Venice provider) 는 무시하고
+        500+ reasoning 토큰을 생성해 max_tokens 예산을 잠식해 빈 응답을 반환한다
+        (finish_reason=length). 모델을 바꾸기 전엔 reasoning 옵션을 끄는 것이 안전.
 
     속도 튜닝:
       - max_tokens=500: 장문 답변의 꼬리 지연 제거 (시행지침 Q&A 는 3~5 문장이면 충분)
@@ -182,15 +237,19 @@ async def _call_llm(system_prompt: str, user_prompt: str) -> str:
             temperature=0.2,
             max_tokens=500,
             http_async_client=http_client,
-            model_kwargs={
-                "extra_body": {
-                    "reasoning": {"effort": "minimal", "exclude": True}
-                }
-            },
         )
         response = await llm.ainvoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),
         ])
     content = response.content
-    return content if isinstance(content, str) else str(content)
+    if not isinstance(content, str) or not content.strip():
+        # 빈 응답은 성공처럼 보여도 사용자에겐 실패. 상위 핸들러가 502 로 분류하도록 예외화.
+        meta = getattr(response, "response_metadata", {}) or {}
+        finish = meta.get("finish_reason", "unknown")
+        usage = meta.get("token_usage", {})
+        raise RuntimeError(
+            f"LLM 이 빈 응답을 반환했습니다 (finish_reason={finish}, usage={usage}). "
+            f"모델 설정이나 max_tokens 를 확인하세요."
+        )
+    return content
